@@ -9,6 +9,7 @@ use crate::{models, types::*};
 
       
       
+      
 
 
 
@@ -18,27 +19,25 @@ use crate::{models, types::*};
 #[cfg_attr(feature = "conversion", derive(frunk::LabelledGeneric))]
 pub struct Employee {
     #[serde(rename = "name")]
-    #[serde(skip_serializing_if="Option::is_none")]
-    pub name: Option<String>,
+    pub name: String,
 
     #[serde(rename = "nick")]
     #[serde(skip_serializing_if="Option::is_none")]
     pub nick: Option<String>,
 
     #[serde(rename = "someAccounts")]
-    #[serde(skip_serializing_if="Option::is_none")]
-    pub some_accounts: Option<Vec<models::SomeAccount>>,
+    pub some_accounts: Vec<models::SomeAccount>,
 
 }
 
 
 impl Employee {
     #[allow(clippy::new_without_default, clippy::too_many_arguments)]
-    pub fn new() -> Employee {
+    pub fn new(name: String, some_accounts: Vec<models::SomeAccount>, ) -> Employee {
         Employee {
-            name: None,
+            name,
             nick: None,
-            some_accounts: None,
+            some_accounts,
         }
     }
 }
@@ -50,12 +49,8 @@ impl std::fmt::Display for Employee {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let params: Vec<Option<String>> = vec![
 
-            self.name.as_ref().map(|name| {
-                [
-                    "name".to_string(),
-                    name.to_string(),
-                ].join(",")
-            }),
+            Some("name".to_string()),
+            Some(self.name.to_string()),
 
 
             self.nick.as_ref().map(|nick| {
@@ -119,9 +114,9 @@ impl std::str::FromStr for Employee {
 
         // Use the intermediate representation to return the struct
         std::result::Result::Ok(Employee {
-            name: intermediate_rep.name.into_iter().next(),
+            name: intermediate_rep.name.into_iter().next().ok_or_else(|| "name missing in Employee".to_string())?,
             nick: intermediate_rep.nick.into_iter().next(),
-            some_accounts: intermediate_rep.some_accounts.into_iter().next(),
+            some_accounts: intermediate_rep.some_accounts.into_iter().next().ok_or_else(|| "someAccounts missing in Employee".to_string())?,
         })
     }
 }

@@ -15,6 +15,15 @@ pub enum HelloWorldResponse {
     Status200_HelloWorld
 }
 
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
+#[must_use]
+#[allow(clippy::large_enum_variant)]
+pub enum ListEmployeesResponse {
+    /// List of employees
+    Status200_ListOfEmployees
+    (Vec<models::Employee>)
+}
+
 
 /// Skjera
 #[async_trait]
@@ -27,4 +36,12 @@ pub trait Skjera {
     host: Host,
     cookies: CookieJar,
     ) -> Result<HelloWorldResponse, String>;
+
+    /// ListEmployees - GET /employee
+    async fn list_employees(
+    &self,
+    method: Method,
+    host: Host,
+    cookies: CookieJar,
+    ) -> Result<ListEmployeesResponse, String>;
 }
