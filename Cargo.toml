@@ -1,0 +1,13 @@
+#[project]
+#name = "skjera"
+
+[workspace]
+resolver = "2"
+members = [
+    "backend",
+    "skjera_api",
+    #    "frontend",
+
+    #Internal
+    #    "common"
+]

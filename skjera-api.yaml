@@ -1,0 +1,60 @@
+openapi: 3.1.0
+info:
+  title: Skjera Api
+  description: Scienta's internal API for figuring out what's shakin'!
+  version: 1.0.0
+
+paths:
+  /:
+    get:
+      tags:
+        - skjera
+      operationId: HelloWorld
+      responses:
+        200:
+          description: Hello World
+
+  /meta/healthz:
+    get:
+      tags:
+        - meta
+      summary: ""
+      operationId: MetaHealthz
+      responses:
+        200:
+          description: Healthy
+        503:
+          description: Unhealthy
+
+components:
+  schemas:
+    Employee:
+      type: object
+      properties:
+        name:
+          type: string
+        nick:
+          type: string
+        someAccounts:
+          type: array
+          items:
+            $ref: "#/components/schemas/SomeAccount"
+
+    SomeAccount:
+      type: object
+      properties:
+        name:
+          type: string
+        url:
+          type: string
+        nick:
+          type: string
+
+    SomeNetwork:
+      type: string
+      enum:
+        - Twitter
+        - LinkedIn
+        - Slack
+        - GitHub
+        - GitLab

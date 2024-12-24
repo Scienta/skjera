@@ -1,0 +1,12 @@
+[package]
+name = "skjera"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+tracing-subscriber = "0.3.19"
+axum = "0.7"
+axum-extra = { version = "0.9", features = ["cookie", "multipart"] }
+tokio = { version = "1.42.0", features = ["rt", "rt-multi-thread", "macros"] }
+skjera_api = {version = "1.0.0", path="../skjera_api"}
+async-trait = "0.1.83"
