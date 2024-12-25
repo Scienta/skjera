@@ -10,14 +10,6 @@ use tokio::signal;
 
 #[tokio::main]
 async fn main() {
-    println!("Hello, world!");
-
-    let trygvis: model::Employee =
-        model::Employee::for_test("Trygve Laugstøl" /*, "trygvis"*/);
-    let tobiast: model::Employee =
-        model::Employee::for_test("Tobias Torrisen" /*, "tobiast"*/);
-    let employees: Vec<model::Employee> = vec![trygvis, tobiast];
-
     let options = match std::env::var("DATABASE_URL") {
         Ok(url) => match url.parse::<PgConnectOptions>() {
             Ok(options) => options,
@@ -31,15 +23,13 @@ async fn main() {
 
     let pool = sqlx::postgres::PgPool::connect_lazy_with(options);
 
-    let server_impl = ServerImpl { employees, pool };
+    let server_impl = ServerImpl { pool };
 
     start_server(server_impl, "0.0.0.0:8080").await
 }
 
 struct ServerImpl {
     pool: sqlx::PgPool,
-
-    employees: Vec<model::Employee>,
 }
 
 impl ServerImpl {
