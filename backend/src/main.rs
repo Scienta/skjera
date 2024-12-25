@@ -1,6 +1,6 @@
+mod meta;
 mod model;
 mod skjera;
-mod meta;
 
 use std::sync::Arc;
 use tokio::net::TcpListener;
@@ -9,20 +9,43 @@ use tokio::signal;
 #[tokio::main]
 async fn main() {
     println!("Hello, world!");
-    start_server("0.0.0.0:8080").await
+
+    let trygvis: model::Employee =
+        model::Employee::for_test("Trygve Laugstøl" /*, "trygvis"*/);
+    let tobiast: model::Employee =
+        model::Employee::for_test("Tobias Torrisen" /*, "tobiast"*/);
+    let employees: Vec<model::Employee> = vec![trygvis, tobiast];
+
+    let db_url = std::env::var("DB_URL")
+        .unwrap_or_else(|_| -> String { "postgres://skjera-backend@localhost/skjera".to_string() });
+
+    let pool =
+        sqlx::postgres::PgPool::connect_lazy(&db_url).unwrap_or_else(|err| panic!("{}", err));
+
+    let server_impl = ServerImpl { employees, pool };
+
+    start_server(server_impl, "0.0.0.0:8080").await
 }
 
 struct ServerImpl {
+    pool: sqlx::PgPool,
+
     employees: Vec<model::Employee>,
 }
 
 impl ServerImpl {
-    fn api_employee(e: &model::Employee) -> skjera_api::models::Employee {
+    fn api_employee(
+        e: &model::Employee,
+        some_accounts: Vec<model::SomeAccount>,
+    ) -> skjera_api::models::Employee {
         skjera_api::models::Employee {
             // id: e.id,
             name: e.name.clone(),
-            nick: e.nick.clone(),
-            some_accounts: e.some_accounts.iter().map(ServerImpl::api_some_account).collect(),
+            nick: None,
+            some_accounts: some_accounts
+                .iter()
+                .map(ServerImpl::api_some_account)
+                .collect(),
         }
     }
 
@@ -35,18 +58,12 @@ impl ServerImpl {
     }
 }
 
-pub async fn start_server(addr: &str) {
-    let trygvis: model::Employee = model::Employee::new("Trygve Laugstøl", "trygvis");
-    let tobiast: model::Employee = model::Employee::new("Tobias Torrisen", "tobiast");
-    let employees: Vec<model::Employee> = vec![trygvis, tobiast];
-
+async fn start_server(server_impl: ServerImpl, addr: &str) {
     // initialize tracing
     tracing_subscriber::fmt::init();
 
     // Init Axum router
-    let app = skjera_api::server::new(Arc::new(ServerImpl {
-        employees: employees.clone(),
-    }));
+    let app = skjera_api::server::new(Arc::new(server_impl));
 
     // Add layers to the router
     // let app = app.layer(...);

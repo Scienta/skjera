@@ -1,0 +1,9 @@
+services:
+  pdb:
+    image: postgres:16
+    ports:
+      - "5555:5432"
+    environment:
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - ./docker.tmp:/var/lib/postgresql/data

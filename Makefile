@@ -1,6 +1,10 @@
+DATABASE_URL_BACKEND=postgres://skjera-backend:skjera-backend@localhost:5555/skjera
+DATABASE_URL_OWNER=postgres://skjera-owner:skjera-owner@localhost:5555/skjera
+
 all: target/debug/skjera
 
-target/debug/skjera: skjera_api/Cargo.toml
+target/debug/skjera: skjera_api/Cargo.toml $(wildcard backend/* backend/*/*)
+	DATABASE_URL=$(DATABASE_URL_BACKEND) \
 	cargo build
 
 skjera_api/Cargo.toml: skjera-api.yaml

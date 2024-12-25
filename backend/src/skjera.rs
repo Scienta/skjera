@@ -1,9 +1,10 @@
+use crate::model;
+use crate::ServerImpl;
 use async_trait::async_trait;
 use axum::extract::Host;
 use axum::http::Method;
 use axum_extra::extract::CookieJar;
 use skjera_api::apis::skjera::{HelloWorldResponse, ListEmployeesResponse, Skjera};
-use crate::ServerImpl;
 
 #[allow(unused_variables)]
 #[async_trait]
@@ -14,7 +15,9 @@ impl Skjera for ServerImpl {
         host: Host,
         cookies: CookieJar,
     ) -> Result<HelloWorldResponse, String> {
-        Ok(HelloWorldResponse::Status200_HelloWorld("Hello world!\n".to_string()))
+        Ok(HelloWorldResponse::Status200_HelloWorld(
+            "Hello world!\n".to_string(),
+        ))
     }
 
     async fn list_employees(
@@ -23,11 +26,19 @@ impl Skjera for ServerImpl {
         host: Host,
         cookies: CookieJar,
     ) -> Result<ListEmployeesResponse, String> {
-        let employees: Vec<skjera_api::models::Employee> = self
-            .employees
+        let employees = sqlx::query_as!(
+            model::Employee,
+            "SELECT id, name FROM skjera.employee ORDER BY id DESC"
+        )
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| e.to_string())?;
+
+        let employees = employees
             .iter()
-            .map(Self::api_employee)
+            .map(|e| Self::api_employee(e, vec![]))
             .collect();
+
         Ok(ListEmployeesResponse::Status200_ListOfEmployees(employees))
     }
 }
