@@ -13,6 +13,7 @@ use crate::{models, types::*};
 pub enum HelloWorldResponse {
     /// Hello World
     Status200_HelloWorld
+    (String)
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]

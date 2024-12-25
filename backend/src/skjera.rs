@@ -14,7 +14,7 @@ impl Skjera for ServerImpl {
         host: Host,
         cookies: CookieJar,
     ) -> Result<HelloWorldResponse, String> {
-        Ok(HelloWorldResponse::Status200_HelloWorld)
+        Ok(HelloWorldResponse::Status200_HelloWorld("Hello world!\n".to_string()))
     }
 
     async fn list_employees(

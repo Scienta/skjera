@@ -149,9 +149,18 @@ where
   let resp = match result {
                                             Ok(rsp) => match rsp {
                                                 apis::skjera::HelloWorldResponse::Status200_HelloWorld
+                                                    (body)
                                                 => {
                                                   let mut response = response.status(200);
-                                                  response.body(Body::empty())
+                                                  {
+                                                    let mut response_headers = response.headers_mut().unwrap();
+                                                    response_headers.insert(
+                                                        CONTENT_TYPE,
+                                                        HeaderValue::from_str("text/plain").map_err(|e| { error!(error = ?e); StatusCode::INTERNAL_SERVER_ERROR })?);
+                                                  }
+
+                                                  let body_content = body;
+                                                  response.body(Body::from(body_content))
                                                 },
                                             },
                                             Err(_) => {
