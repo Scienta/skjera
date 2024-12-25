@@ -2,6 +2,8 @@ mod meta;
 mod model;
 mod skjera;
 
+use sqlx::postgres::PgConnectOptions;
+use std::process::exit;
 use std::sync::Arc;
 use tokio::net::TcpListener;
 use tokio::signal;
@@ -16,11 +18,18 @@ async fn main() {
         model::Employee::for_test("Tobias Torrisen" /*, "tobiast"*/);
     let employees: Vec<model::Employee> = vec![trygvis, tobiast];
 
-    let db_url = std::env::var("DB_URL")
-        .unwrap_or_else(|_| -> String { "postgres://skjera-backend@localhost/skjera".to_string() });
+    let options = match std::env::var("DATABASE_URL") {
+        Ok(url) => match url.parse::<PgConnectOptions>() {
+            Ok(options) => options,
+            Err(e) => {
+                eprintln!("error: {}", e);
+                exit(1)
+            }
+        },
+        Err(_) => PgConnectOptions::default(),
+    };
 
-    let pool =
-        sqlx::postgres::PgPool::connect_lazy(&db_url).unwrap_or_else(|err| panic!("{}", err));
+    let pool = sqlx::postgres::PgPool::connect_lazy_with(options);
 
     let server_impl = ServerImpl { employees, pool };
 
@@ -49,7 +58,7 @@ impl ServerImpl {
         }
     }
 
-    fn api_some_account(s: &model::SomeAccount) -> skjera_api::models::SomeAccount {
+    fn api_some_account(_s: &model::SomeAccount) -> skjera_api::models::SomeAccount {
         skjera_api::models::SomeAccount {
             name: Some("".to_string()),
             nick: Some("".to_string()),
