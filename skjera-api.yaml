@@ -64,8 +64,16 @@ components:
 
     SomeAccount:
       type: object
+      required:
+        - id
+        - network
+        - url
+        - nick
       properties:
-        name:
+        id:
+          type: integer
+          format: int64
+        network:
           type: string
         url:
           type: string

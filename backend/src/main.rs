@@ -35,7 +35,7 @@ struct ServerImpl {
 impl ServerImpl {
     fn api_employee(
         e: &model::Employee,
-        some_accounts: Vec<model::SomeAccount>,
+        some_accounts: &Vec<model::SomeAccount>,
     ) -> skjera_api::models::Employee {
         skjera_api::models::Employee {
             // id: e.id,
@@ -48,11 +48,12 @@ impl ServerImpl {
         }
     }
 
-    fn api_some_account(_s: &model::SomeAccount) -> skjera_api::models::SomeAccount {
+    fn api_some_account(s: &model::SomeAccount) -> skjera_api::models::SomeAccount {
         skjera_api::models::SomeAccount {
-            name: Some("".to_string()),
-            nick: Some("".to_string()),
-            url: Some("".to_string()),
+            id: s.id,
+            network: s.network.to_string(),
+            nick: s.nick.to_string(),
+            url: s.url.to_string(),
         }
     }
 }

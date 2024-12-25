@@ -168,28 +168,29 @@ impl std::convert::TryFrom<HeaderValue> for header::IntoHeaderValue<Employee> {
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, validator::Validate)]
 #[cfg_attr(feature = "conversion", derive(frunk::LabelledGeneric))]
 pub struct SomeAccount {
-    #[serde(rename = "name")]
-    #[serde(skip_serializing_if="Option::is_none")]
-    pub name: Option<String>,
+    #[serde(rename = "id")]
+    pub id: i64,
+
+    #[serde(rename = "network")]
+    pub network: String,
 
     #[serde(rename = "url")]
-    #[serde(skip_serializing_if="Option::is_none")]
-    pub url: Option<String>,
+    pub url: String,
 
     #[serde(rename = "nick")]
-    #[serde(skip_serializing_if="Option::is_none")]
-    pub nick: Option<String>,
+    pub nick: String,
 
 }
 
 
 impl SomeAccount {
     #[allow(clippy::new_without_default, clippy::too_many_arguments)]
-    pub fn new() -> SomeAccount {
+    pub fn new(id: i64, network: String, url: String, nick: String, ) -> SomeAccount {
         SomeAccount {
-            name: None,
-            url: None,
-            nick: None,
+            id,
+            network,
+            url,
+            nick,
         }
     }
 }
@@ -201,28 +202,20 @@ impl std::fmt::Display for SomeAccount {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let params: Vec<Option<String>> = vec![
 
-            self.name.as_ref().map(|name| {
-                [
-                    "name".to_string(),
-                    name.to_string(),
-                ].join(",")
-            }),
+            Some("id".to_string()),
+            Some(self.id.to_string()),
 
 
-            self.url.as_ref().map(|url| {
-                [
-                    "url".to_string(),
-                    url.to_string(),
-                ].join(",")
-            }),
+            Some("network".to_string()),
+            Some(self.network.to_string()),
 
 
-            self.nick.as_ref().map(|nick| {
-                [
-                    "nick".to_string(),
-                    nick.to_string(),
-                ].join(",")
-            }),
+            Some("url".to_string()),
+            Some(self.url.to_string()),
+
+
+            Some("nick".to_string()),
+            Some(self.nick.to_string()),
 
         ];
 
@@ -241,7 +234,8 @@ impl std::str::FromStr for SomeAccount {
         #[derive(Default)]
         #[allow(dead_code)]
         struct IntermediateRep {
-            pub name: Vec<String>,
+            pub id: Vec<i64>,
+            pub network: Vec<String>,
             pub url: Vec<String>,
             pub nick: Vec<String>,
         }
@@ -262,7 +256,9 @@ impl std::str::FromStr for SomeAccount {
                 #[allow(clippy::match_single_binding)]
                 match key {
                     #[allow(clippy::redundant_clone)]
-                    "name" => intermediate_rep.name.push(<String as std::str::FromStr>::from_str(val).map_err(|x| x.to_string())?),
+                    "id" => intermediate_rep.id.push(<i64 as std::str::FromStr>::from_str(val).map_err(|x| x.to_string())?),
+                    #[allow(clippy::redundant_clone)]
+                    "network" => intermediate_rep.network.push(<String as std::str::FromStr>::from_str(val).map_err(|x| x.to_string())?),
                     #[allow(clippy::redundant_clone)]
                     "url" => intermediate_rep.url.push(<String as std::str::FromStr>::from_str(val).map_err(|x| x.to_string())?),
                     #[allow(clippy::redundant_clone)]
@@ -277,9 +273,10 @@ impl std::str::FromStr for SomeAccount {
 
         // Use the intermediate representation to return the struct
         std::result::Result::Ok(SomeAccount {
-            name: intermediate_rep.name.into_iter().next(),
-            url: intermediate_rep.url.into_iter().next(),
-            nick: intermediate_rep.nick.into_iter().next(),
+            id: intermediate_rep.id.into_iter().next().ok_or_else(|| "id missing in SomeAccount".to_string())?,
+            network: intermediate_rep.network.into_iter().next().ok_or_else(|| "network missing in SomeAccount".to_string())?,
+            url: intermediate_rep.url.into_iter().next().ok_or_else(|| "url missing in SomeAccount".to_string())?,
+            nick: intermediate_rep.nick.into_iter().next().ok_or_else(|| "nick missing in SomeAccount".to_string())?,
         })
     }
 }
