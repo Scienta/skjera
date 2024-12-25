@@ -4,7 +4,6 @@ target/debug/skjera: skjera_api/Cargo.toml
 	cargo build
 
 skjera_api/Cargo.toml: skjera-api.yaml
-	rm -rf skjera_api
 	bin/openapi-generator-cli generate \
 		-g rust-axum \
 		-o skjera_api \

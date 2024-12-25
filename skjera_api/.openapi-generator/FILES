@@ -1,7 +1,5 @@
 .gitignore
-.openapi-generator-ignore
 Cargo.toml
-README.md
 src/apis/meta.rs
 src/apis/mod.rs
 src/apis/skjera.rs
