@@ -1,5 +1,6 @@
 .gitignore
 Cargo.toml
+src/apis/html.rs
 src/apis/meta.rs
 src/apis/mod.rs
 src/apis/skjera.rs

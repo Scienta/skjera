@@ -8,16 +8,16 @@ paths:
   /:
     get:
       tags:
-        - skjera
+        - html
       operationId: HelloWorld
       responses:
         200:
           description: Hello World
           content:
-            text/plain:
+            text/html:
               schema: { }
 
-  /employee:
+  /api/employee:
     get:
       tags:
         - skjera

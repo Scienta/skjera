@@ -10,22 +10,22 @@ use crate::{models, types::*};
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 #[must_use]
 #[allow(clippy::large_enum_variant)]
-pub enum ListEmployeesResponse {
-    /// List of employees
-    Status200_ListOfEmployees
-    (Vec<models::Employee>)
+pub enum HelloWorldResponse {
+    /// Hello World
+    Status200_HelloWorld
+    (String)
 }
 
 
-/// Skjera
+/// Html
 #[async_trait]
 #[allow(clippy::ptr_arg)]
-pub trait Skjera {
-    /// ListEmployees - GET /api/employee
-    async fn list_employees(
+pub trait Html {
+    /// HelloWorld - GET /
+    async fn hello_world(
     &self,
     method: Method,
     host: Host,
     cookies: CookieJar,
-    ) -> Result<ListEmployeesResponse, String>;
+    ) -> Result<HelloWorldResponse, String>;
 }

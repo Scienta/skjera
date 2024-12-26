@@ -1,12 +1,16 @@
 mod meta;
 mod model;
 mod skjera;
+mod html;
 
+use axum::Router;
 use sqlx::postgres::PgConnectOptions;
+use std::path::Path;
 use std::process::exit;
 use std::sync::Arc;
 use tokio::net::TcpListener;
 use tokio::signal;
+use tower_http::{services::ServeDir, trace::TraceLayer};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 #[tokio::main]
@@ -31,14 +35,16 @@ async fn main() {
     };
 
     let pool = sqlx::postgres::PgPool::connect_lazy_with(options);
+    let assets_path = "backend/assets".to_string();
 
-    let server_impl = ServerImpl { pool };
+    let server_impl = ServerImpl { pool, assets_path };
 
     start_server(server_impl, "0.0.0.0:8080").await
 }
 
 struct ServerImpl {
     pool: sqlx::PgPool,
+    assets_path: String,
 }
 
 impl ServerImpl {
@@ -69,11 +75,16 @@ impl ServerImpl {
 }
 
 async fn start_server(server_impl: ServerImpl, addr: &str) {
-    // Init Axum router
-    let app = skjera_api::server::new(Arc::new(server_impl));
+    let ap = &server_impl.assets_path.clone();
+    let assets_path = Path::new(ap);
 
-    // Add layers to the router
-    // let app = app.layer(...);
+    let assets = Router::new().nest_service("/", ServeDir::new(assets_path));
+    let app = skjera_api::server::new(Arc::new(server_impl));
+    let app = app.fallback_service(assets);
+
+    let app = Router::new()
+        .merge(app)
+        .layer(TraceLayer::new_for_http());
 
     // Run the server with graceful shutdown
     let listener = TcpListener::bind(addr).await.unwrap();

@@ -4,23 +4,12 @@ use async_trait::async_trait;
 use axum::extract::Host;
 use axum::http::Method;
 use axum_extra::extract::CookieJar;
-use skjera_api::apis::skjera::{HelloWorldResponse, ListEmployeesResponse, Skjera};
+use skjera_api::apis::skjera::{ListEmployeesResponse, Skjera};
 use std::collections::HashMap;
 
 #[allow(unused_variables)]
 #[async_trait]
 impl Skjera for ServerImpl {
-    async fn hello_world(
-        &self,
-        method: Method,
-        host: Host,
-        cookies: CookieJar,
-    ) -> Result<HelloWorldResponse, String> {
-        Ok(HelloWorldResponse::Status200_HelloWorld(
-            "Hello world!\n".to_string(),
-        ))
-    }
-
     async fn list_employees(
         &self,
         method: Method,
