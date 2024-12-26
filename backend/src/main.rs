@@ -7,9 +7,18 @@ use std::process::exit;
 use std::sync::Arc;
 use tokio::net::TcpListener;
 use tokio::signal;
+use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 #[tokio::main]
 async fn main() {
+    tracing_subscriber::registry()
+        .with(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| format!("{}=debug", env!("CARGO_CRATE_NAME")).into()),
+        )
+        .with(tracing_subscriber::fmt::layer())
+        .init();
+
     let options = match std::env::var("DATABASE_URL") {
         Ok(url) => match url.parse::<PgConnectOptions>() {
             Ok(options) => options,
@@ -60,9 +69,6 @@ impl ServerImpl {
 }
 
 async fn start_server(server_impl: ServerImpl, addr: &str) {
-    // initialize tracing
-    tracing_subscriber::fmt::init();
-
     // Init Axum router
     let app = skjera_api::server::new(Arc::new(server_impl));
 
