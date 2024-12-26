@@ -1,5 +1,4 @@
-use crate::model;
-use crate::model::SomeAccount;
+use crate::model::*;
 use crate::ServerImpl;
 use async_trait::async_trait;
 use axum::extract::Host;
@@ -28,7 +27,7 @@ impl Skjera for ServerImpl {
         host: Host,
         cookies: CookieJar,
     ) -> Result<ListEmployeesResponse, String> {
-        let employees = sqlx::query_as!(model::Employee, "SELECT id, email, name FROM skjera.employee")
+        let employees = sqlx::query_as!(Employee, "SELECT id, email, name FROM skjera.employee")
             .fetch_all(&self.pool)
             .await
             .map_err(|e| {
@@ -39,7 +38,7 @@ impl Skjera for ServerImpl {
         let employee_ids: Vec<i64> = employees.iter().map(|x| x.id).collect();
 
         let some_accounts = sqlx::query_as!(
-            model::SomeAccount,
+            SomeAccount,
             "SELECT id, employee, network, nick, url FROM skjera.some_account WHERE employee = ANY ($1) ORDER BY id",
             &employee_ids
         )
