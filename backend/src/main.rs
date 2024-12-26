@@ -40,6 +40,7 @@ impl ServerImpl {
         skjera_api::models::Employee {
             // id: e.id,
             name: e.name.clone(),
+            email: e.email.clone(),
             nick: None,
             some_accounts: some_accounts
                 .iter()

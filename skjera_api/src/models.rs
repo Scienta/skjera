@@ -21,6 +21,9 @@ pub struct Employee {
     #[serde(rename = "name")]
     pub name: String,
 
+    #[serde(rename = "email")]
+    pub email: String,
+
     #[serde(rename = "nick")]
     #[serde(skip_serializing_if="Option::is_none")]
     pub nick: Option<String>,
@@ -33,9 +36,10 @@ pub struct Employee {
 
 impl Employee {
     #[allow(clippy::new_without_default, clippy::too_many_arguments)]
-    pub fn new(name: String, some_accounts: Vec<models::SomeAccount>, ) -> Employee {
+    pub fn new(name: String, email: String, some_accounts: Vec<models::SomeAccount>, ) -> Employee {
         Employee {
             name,
+            email,
             nick: None,
             some_accounts,
         }
@@ -51,6 +55,10 @@ impl std::fmt::Display for Employee {
 
             Some("name".to_string()),
             Some(self.name.to_string()),
+
+
+            Some("email".to_string()),
+            Some(self.email.to_string()),
 
 
             self.nick.as_ref().map(|nick| {
@@ -80,6 +88,7 @@ impl std::str::FromStr for Employee {
         #[allow(dead_code)]
         struct IntermediateRep {
             pub name: Vec<String>,
+            pub email: Vec<String>,
             pub nick: Vec<String>,
             pub some_accounts: Vec<Vec<models::SomeAccount>>,
         }
@@ -102,6 +111,8 @@ impl std::str::FromStr for Employee {
                     #[allow(clippy::redundant_clone)]
                     "name" => intermediate_rep.name.push(<String as std::str::FromStr>::from_str(val).map_err(|x| x.to_string())?),
                     #[allow(clippy::redundant_clone)]
+                    "email" => intermediate_rep.email.push(<String as std::str::FromStr>::from_str(val).map_err(|x| x.to_string())?),
+                    #[allow(clippy::redundant_clone)]
                     "nick" => intermediate_rep.nick.push(<String as std::str::FromStr>::from_str(val).map_err(|x| x.to_string())?),
                     "someAccounts" => return std::result::Result::Err("Parsing a container in this style is not supported in Employee".to_string()),
                     _ => return std::result::Result::Err("Unexpected key while parsing Employee".to_string())
@@ -115,6 +126,7 @@ impl std::str::FromStr for Employee {
         // Use the intermediate representation to return the struct
         std::result::Result::Ok(Employee {
             name: intermediate_rep.name.into_iter().next().ok_or_else(|| "name missing in Employee".to_string())?,
+            email: intermediate_rep.email.into_iter().next().ok_or_else(|| "email missing in Employee".to_string())?,
             nick: intermediate_rep.nick.into_iter().next(),
             some_accounts: intermediate_rep.some_accounts.into_iter().next().ok_or_else(|| "someAccounts missing in Employee".to_string())?,
         })

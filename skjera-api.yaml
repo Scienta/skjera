@@ -50,10 +50,13 @@ components:
     Employee:
       type: object
       required:
+        - email
         - name
         - someAccounts
       properties:
         name:
+          type: string
+        email:
           type: string
         nick:
           type: string

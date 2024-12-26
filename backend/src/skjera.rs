@@ -28,7 +28,7 @@ impl Skjera for ServerImpl {
         host: Host,
         cookies: CookieJar,
     ) -> Result<ListEmployeesResponse, String> {
-        let employees = sqlx::query_as!(model::Employee, "SELECT id, name FROM skjera.employee")
+        let employees = sqlx::query_as!(model::Employee, "SELECT id, email, name FROM skjera.employee")
             .fetch_all(&self.pool)
             .await
             .map_err(|e| {
