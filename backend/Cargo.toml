@@ -7,9 +7,10 @@ edition = "2021"
 anyhow = "1.0.95"
 askama = { version = "0.12.1", features = ["with-axum"] }
 askama_axum = "0.4.0"
+async-session = "3.0.0"
 async-trait = "0.1.83"
 axum = "0.7"
-axum-extra = { version = "0.9", features = ["cookie", "multipart"] }
+axum-extra = { version = "0.9", features = ["cookie", "multipart", "typed-header"] }
 dotenv = "0.15.0"
 oauth2 = "4.4.2"
 reqwest = { version = "0.12.9", features = ["json"] }
@@ -21,3 +22,4 @@ tower-http = { version = "0.6.2", features = ["fs", "trace"] }
 tracing = "0.1.41"
 tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
 url = "2.5.4"
+headers = "0.4.0"

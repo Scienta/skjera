@@ -1,62 +1,45 @@
-use crate::ServerImpl;
-use askama_axum::Template;
-use async_trait::async_trait;
-use axum::extract::Host;
-use axum::http::Method;
-use axum_extra::extract::CookieJar;
-use skjera_api::apis::html::{HelloWorldResponse, Html};
+use crate::{AppError, ServerImpl, SessionUser};
+use askama_axum::{Template};
+use axum::extract::State;
+use axum::response::Html;
 use url;
+use url::Url;
 
 #[derive(Template)]
 #[template(path = "hello.html"/*, print = "all"*/)]
-pub(crate) struct HelloTemplate {
+struct HelloTemplate {
     pub name: String,
     pub google_auth_url: Option<String>,
 }
 
-#[allow(unused_variables)]
-#[async_trait]
-impl Html for ServerImpl {
-    async fn hello_world(
-        &self,
-        method: Method,
-        host: Host,
-        cookies: CookieJar,
-    ) -> Result<HelloWorldResponse, String> {
-        let scope = "openid profile email";
-        let url = url::Url::parse_with_params(
+pub async fn hello_world(
+    State(app): State<ServerImpl>,
+    user: Option<SessionUser>,
+) -> Result<Html<String>, AppError> {
+    let scope = "openid profile email";
+
+    let mut name = "world".to_string();
+    let mut url = None::<String>;
+    if user.is_some() {
+        let user = user.unwrap();
+        name = user.email;
+    } else {
+        let u = Url::parse_with_params(
             "https://accounts.google.com/o/oauth2/v2/auth",
             &[
                 ("scope", scope),
-                ("client_id", &self.cfg.client_id),
+                ("client_id", &app.cfg.client_id),
                 ("response_type", "code"),
-                ("redirect_uri", &self.cfg.redirect_url),
+                ("redirect_uri", &app.cfg.redirect_url),
             ],
-        );
-
-        if let Err(e) = url {
-            return Err(e.to_string());
-        }
-
-        let url = url.unwrap();
-
-        let template = HelloTemplate {
-            name: "world".to_string(),
-            google_auth_url: Some(url.to_string()),
-        };
-
-        match template.render() {
-            Ok(text) => Ok(HelloWorldResponse::Status200_HelloWorld(text)),
-            Err(e) => Err(e.to_string()),
-        }
+        )?.to_string();
+        url = Some(u)
     }
-}
 
-#[derive(Debug, serde::Deserialize)]
-pub struct UserProfile {
-    sub: String,
-    email: String,
-    name: String,
-    // given_name: Option<String>,
-    // family_name: Option<String>,
+    let template = HelloTemplate {
+        name,
+        google_auth_url: url,
+    };
+
+    Ok(Html(template.render()?))
 }

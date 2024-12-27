@@ -3,14 +3,20 @@ mod meta;
 mod model;
 mod skjera;
 
-use crate::html::UserProfile;
-use axum::http::{HeaderMap, StatusCode};
+use crate::html::hello_world;
+use anyhow::Context;
+use async_session::{MemoryStore, Session, SessionStore};
+use async_trait::async_trait;
+use axum::extract::{FromRef, FromRequestParts};
+use axum::extract::{Query, State};
+use axum::http::header::SET_COOKIE;
+use axum::http::request::Parts;
+use axum::http::{header, HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Redirect, Response};
-use axum::{
-    extract::{Query, State},
-    routing::get,
-    Router,
-};
+use axum::routing::get;
+use axum::{RequestPartsExt, Router};
+use axum_extra::typed_header::TypedHeaderRejectionReason;
+use axum_extra::TypedHeader;
 use oauth2::reqwest::async_http_client;
 use oauth2::{
     basic::BasicClient, AuthUrl, AuthorizationCode, ClientId, ClientSecret, RedirectUrl,
@@ -21,11 +27,12 @@ use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgConnectOptions;
 use std::path::Path;
 use std::process::exit;
-use std::sync::Arc;
 use tokio::net::TcpListener;
 use tokio::signal;
 use tower_http::{services::ServeDir, trace::TraceLayer};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
+
+static COOKIE_NAME: &str = "SESSION";
 
 #[tokio::main]
 async fn main() {
@@ -71,6 +78,7 @@ async fn main() {
         ctx,
         cfg,
         basic_client,
+        store: MemoryStore::new(),
     };
 
     start_server(server_impl, "0.0.0.0:8080").await
@@ -83,6 +91,13 @@ struct ServerImpl {
     ctx: ReqwestClient,
     cfg: Config,
     basic_client: BasicClient,
+    store: MemoryStore,
+}
+
+impl FromRef<ServerImpl> for MemoryStore {
+    fn from_ref(state: &ServerImpl) -> Self {
+        state.store.clone()
+    }
 }
 
 impl ServerImpl {
@@ -116,21 +131,13 @@ async fn start_server(server_impl: ServerImpl, addr: &str) {
     let ap = &server_impl.assets_path.clone();
     let assets_path = Path::new(ap);
 
-    // let si = server_impl;
-
-    let server_impl = Arc::new(server_impl);
-
-    let auth = Router::new()
-        .route("/oauth/google", get(oauth_google))
-        .with_state(Arc::clone(&server_impl));
-
-    let app = auth;
-
-    let api_app = skjera_api::server::new(Arc::clone(&server_impl));
-
     let assets = Router::new().nest_service("/assets", ServeDir::new(assets_path));
-    let app = app.merge(api_app);
-    let app = app.fallback_service(assets);
+
+    let app = Router::new()
+        .route("/", get(hello_world))
+        .route("/oauth/google", get(oauth_google))
+        .fallback_service(assets)
+        .with_state(server_impl);
 
     let app = app.layer(TraceLayer::new_for_http());
 
@@ -192,7 +199,7 @@ impl Config {
     }
 }
 
-#[derive(Debug, serde::Deserialize)]
+#[derive(Debug, Deserialize)]
 #[allow(dead_code)]
 struct AuthRequest {
     code: String,
@@ -222,22 +229,21 @@ where
 
 async fn oauth_google(
     Query(query): Query<AuthRequest>,
-    State(app): State<Arc<ServerImpl>>,
-    // State(ctx): State<ReqwestClient>,
-    // State(basic_client): State<BasicClient>,
-    // State(store): State<MemoryStore>,
+    State(app): State<ServerImpl>,
 ) -> Result<impl IntoResponse, AppError> {
     let code = query.code;
     println!("code: {}", code);
 
-    let token = app.basic_client
+    let token = app
+        .basic_client
         .exchange_code(AuthorizationCode::new(code))
         .request_async(async_http_client)
         .await?;
 
     println!("token: {:?}", token.scopes());
 
-    let profile = app.ctx
+    let profile = app
+        .ctx
         .get("https://openidconnect.googleapis.com/v1/userinfo")
         .bearer_auth(token.access_token().secret().to_owned())
         .send()
@@ -247,15 +253,35 @@ async fn oauth_google(
     // // println!("UserProfile: {:?}", profile_response);
     // // let user_profile = serde_json::from_str::<UserProfile>(&profile_response).unwrap();
     //
-    let user_profile = profile.json::<UserProfile>().await.unwrap();
+    let user_profile = profile.json::<GoogleUserProfile>().await?;
 
     println!("UserProfile: {:?}", user_profile);
 
+    // Create a new session filled with user data
+    let mut session = Session::new();
+    session
+        .insert("user", &user_profile)
+        .context("failed in inserting serialized value into session")?;
+
+    // Store session and get corresponding cookie
+    let cookie = app
+        .store
+        .store_session(session)
+        .await
+        .context("failed to store session")?
+        .context("unexpected error retrieving cookie value")?;
+
+    // Build the cookie
+    let cookie = format!("{COOKIE_NAME}={cookie}; SameSite=Lax; HttpOnly; Secure; Path=/");
+
+    // Set cookie
     let mut headers = HeaderMap::new();
+    headers.insert(
+        SET_COOKIE,
+        cookie.parse().context("failed to parse cookie")?,
+    );
 
-    // // Ok((headers, Redirect::to("/")))
-
-    Ok("fakk")
+    Ok((headers, Redirect::to("/")))
 }
 
 fn build_oauth_client(
@@ -277,3 +303,82 @@ fn build_oauth_client(
     )
     .set_redirect_uri(RedirectUrl::new(redirect_url).unwrap())
 }
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct GoogleUserProfile {
+    sub: String,
+    email: String,
+    name: String,
+    // given_name: Option<String>,
+    // family_name: Option<String>,
+}
+
+pub struct AuthRedirect;
+
+impl IntoResponse for AuthRedirect {
+    fn into_response(self) -> Response {
+        Redirect::temporary("/auth/discord").into_response()
+    }
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct SessionUser {
+    email: String,
+}
+
+#[async_trait]
+impl<S> FromRequestParts<S> for SessionUser
+where
+    MemoryStore: FromRef<S>,
+    S: Send + Sync,
+{
+    // If anything goes wrong or no session is found, redirect to the auth page
+    type Rejection = AuthRedirect;
+
+    async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
+        let store = MemoryStore::from_ref(state);
+
+        let cookies = parts
+            .extract::<TypedHeader<headers::Cookie>>()
+            .await
+            .map_err(|e| match *e.name() {
+                header::COOKIE => match e.reason() {
+                    TypedHeaderRejectionReason::Missing => AuthRedirect,
+                    _ => panic!("unexpected error getting Cookie header(s): {e}"),
+                },
+                _ => panic!("unexpected error getting cookies: {e}"),
+            })?;
+        let session_cookie = cookies.get(COOKIE_NAME).ok_or(AuthRedirect)?;
+
+        let session = store
+            .load_session(session_cookie.to_string())
+            .await
+            .unwrap()
+            .ok_or(AuthRedirect)?;
+
+        let user = session.get::<SessionUser>("user").ok_or(AuthRedirect)?;
+
+        Ok(user)
+    }
+}
+
+/*
+// impl<S> OptionalFromRequestParts<S> for SessionUser
+impl<S> FromRequestParts<S> for Option<SessionUser>
+where
+    MemoryStore: FromRef<S>,
+    S: Send + Sync,
+{
+    type Rejection = Infallible;
+
+    async fn from_request_parts(
+        parts: &mut Parts,
+        state: &S,
+    ) -> Result<Option<Self>, Self::Rejection> {
+        match <SessionUser as FromRequestParts<S>>::from_request_parts(parts, state).await {
+            Ok(res) => Ok(Some(res)),
+            Err(AuthRedirect) => Ok(None),
+        }
+    }
+}
+*/
