@@ -8,7 +8,9 @@
 <body>
 Hello {{ name }}
 
+{% if let Some(google_auth_url) = self.google_auth_url %}
 <p>
     <a href="{{ google_auth_url }}">Click here to sign in with Google!</a>
+{% endif %}
 </body>
 </html>

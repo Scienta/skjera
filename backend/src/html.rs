@@ -1,5 +1,5 @@
 use crate::ServerImpl;
-use askama::Template;
+use askama_axum::Template;
 use async_trait::async_trait;
 use axum::extract::Host;
 use axum::http::Method;
@@ -8,14 +8,13 @@ use oauth2::reqwest::async_http_client;
 use oauth2::{AuthorizationCode, TokenResponse};
 use skjera_api::apis::html::{HelloWorldResponse, Html, OauthGoogleResponse};
 use skjera_api::models::OauthGoogleQueryParams;
-use std::fmt::Debug;
 use url;
 
 #[derive(Template)]
-#[template(path = "hello.html")]
+#[template(path = "hello.html"/*, print = "all"*/)]
 pub(crate) struct HelloTemplate {
     pub name: String,
-    pub google_auth_url: String,
+    pub google_auth_url: Option<String>,
 }
 
 #[allow(unused_variables)]
@@ -46,7 +45,7 @@ impl Html for ServerImpl {
 
         let template = HelloTemplate {
             name: "world".to_string(),
-            google_auth_url: url.to_string(),
+            google_auth_url: Some(url.to_string()),
         };
 
         match template.render() {
@@ -71,19 +70,50 @@ impl Html for ServerImpl {
             .request_async(async_http_client)
             .await;
 
-        match token {
-            Ok(token) => {
-                println!("token: {:?}", token.scopes());
-                Ok(OauthGoogleResponse::Status200_OAuthResponsesForGoogle(
-                    "yeah!!".to_string(),
-                ))
-            }
-            Err(e) => {
-                println!("token: {}", e);
-                Ok(OauthGoogleResponse::Status200_OAuthResponsesForGoogle(
-                    "fail".to_string(),
-                ))
-            }
+        if let Err(e) = token {
+            return Err(e.to_string());
+        }
+        let token = token.unwrap();
+
+        println!("token: {:?}", token.scopes());
+
+        let profile = self
+            .ctx
+            .get("https://openidconnect.googleapis.com/v1/userinfo")
+            .bearer_auth(token.access_token().secret().to_owned())
+            .send()
+            .await;
+
+        if let Err(e) = profile {
+            return Err(e.to_string());
+        }
+        let profile = profile.unwrap();
+
+        // let profile_response = profile.text().await.unwrap();
+        // println!("UserProfile: {:?}", profile_response);
+        // let user_profile = serde_json::from_str::<UserProfile>(&profile_response).unwrap();
+
+        let user_profile = profile.json::<UserProfile>().await.unwrap();
+
+        println!("UserProfile: {:?}", user_profile);
+
+        let template = HelloTemplate {
+            name: user_profile.name,
+            google_auth_url: None,
+        };
+
+        match template.render() {
+            Ok(text) => Ok(OauthGoogleResponse::Status200_OAuthResponsesForGoogle(text)),
+            Err(e) => Err(e.to_string()),
         }
     }
+}
+
+#[derive(Debug, serde::Deserialize)]
+pub struct UserProfile {
+    sub: String,
+    email: String,
+    name: String,
+    // given_name: Option<String>,
+    // family_name: Option<String>,
 }
