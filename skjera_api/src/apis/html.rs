@@ -16,6 +16,15 @@ pub enum HelloWorldResponse {
     (String)
 }
 
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
+#[must_use]
+#[allow(clippy::large_enum_variant)]
+pub enum OauthGoogleResponse {
+    /// OAuth responses for Google
+    Status200_OAuthResponsesForGoogle
+    (String)
+}
+
 
 /// Html
 #[async_trait]
@@ -28,4 +37,13 @@ pub trait Html {
     host: Host,
     cookies: CookieJar,
     ) -> Result<HelloWorldResponse, String>;
+
+    /// OauthGoogle - GET /oauth/google
+    async fn oauth_google(
+    &self,
+    method: Method,
+    host: Host,
+    cookies: CookieJar,
+      query_params: models::OauthGoogleQueryParams,
+    ) -> Result<OauthGoogleResponse, String>;
 }

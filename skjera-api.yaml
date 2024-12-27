@@ -16,6 +16,22 @@ paths:
           content:
             text/html:
               schema: { }
+  /oauth/google:
+    get:
+      tags:
+        - html
+      operationId: OauthGoogle
+      parameters:
+        - name: code
+          in: query
+          schema:
+            type: string
+      responses:
+        200:
+          description: OAuth responses for Google
+          content:
+            text/html:
+              schema: { }
 
   /api/employee:
     get:
