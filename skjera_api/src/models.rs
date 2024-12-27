@@ -9,15 +9,6 @@ use crate::{models, types::*};
 
       
       
-    #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, validator::Validate)]
-    #[cfg_attr(feature = "conversion", derive(frunk::LabelledGeneric))] 
-    pub struct OauthGoogleQueryParams {
-                #[serde(rename = "code")]
-                #[serde(skip_serializing_if="Option::is_none")]
-                pub code: Option<String>,
-    }
-
-      
       
 
 

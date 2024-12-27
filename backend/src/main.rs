@@ -3,9 +3,21 @@ mod meta;
 mod model;
 mod skjera;
 
-use axum::Router;
-use oauth2::{basic::BasicClient, AuthUrl, ClientId, ClientSecret, RedirectUrl, TokenUrl};
+use crate::html::UserProfile;
+use axum::http::{HeaderMap, StatusCode};
+use axum::response::{IntoResponse, Redirect, Response};
+use axum::{
+    extract::{Query, State},
+    routing::get,
+    Router,
+};
+use oauth2::reqwest::async_http_client;
+use oauth2::{
+    basic::BasicClient, AuthUrl, AuthorizationCode, ClientId, ClientSecret, RedirectUrl,
+    TokenResponse, TokenUrl,
+};
 use reqwest::Client as ReqwestClient;
+use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgConnectOptions;
 use std::path::Path;
 use std::process::exit;
@@ -64,6 +76,7 @@ async fn main() {
     start_server(server_impl, "0.0.0.0:8080").await
 }
 
+#[derive(Clone)]
 struct ServerImpl {
     pool: sqlx::PgPool,
     assets_path: String,
@@ -103,11 +116,23 @@ async fn start_server(server_impl: ServerImpl, addr: &str) {
     let ap = &server_impl.assets_path.clone();
     let assets_path = Path::new(ap);
 
+    // let si = server_impl;
+
+    let server_impl = Arc::new(server_impl);
+
+    let auth = Router::new()
+        .route("/oauth/google", get(oauth_google))
+        .with_state(Arc::clone(&server_impl));
+
+    let app = auth;
+
+    let api_app = skjera_api::server::new(Arc::clone(&server_impl));
+
     let assets = Router::new().nest_service("/assets", ServeDir::new(assets_path));
-    let app = skjera_api::server::new(Arc::new(server_impl));
+    let app = app.merge(api_app);
     let app = app.fallback_service(assets);
 
-    let app = Router::new().merge(app).layer(TraceLayer::new_for_http());
+    let app = app.layer(TraceLayer::new_for_http());
 
     // Run the server with graceful shutdown
     let listener = TcpListener::bind(addr).await.unwrap();
@@ -141,6 +166,7 @@ async fn shutdown_signal() {
     }
 }
 
+#[derive(Clone)]
 struct Config {
     pub client_id: String,
     pub client_secret: String,
@@ -164,6 +190,72 @@ impl Config {
             redirect_url,
         })
     }
+}
+
+#[derive(Debug, serde::Deserialize)]
+#[allow(dead_code)]
+struct AuthRequest {
+    code: String,
+}
+
+#[derive(Debug)]
+struct AppError(anyhow::Error);
+
+impl IntoResponse for AppError {
+    fn into_response(self) -> Response {
+        tracing::error!("Application error: {:#}", self.0);
+
+        (StatusCode::INTERNAL_SERVER_ERROR, "Something went wrong").into_response()
+    }
+}
+
+// This enables using `?` on functions that return `Result<_, anyhow::Error>` to turn them into
+// `Result<_, AppError>`. That way you don't need to do that manually.
+impl<E> From<E> for AppError
+where
+    E: Into<anyhow::Error>,
+{
+    fn from(err: E) -> Self {
+        Self(err.into())
+    }
+}
+
+async fn oauth_google(
+    Query(query): Query<AuthRequest>,
+    State(app): State<Arc<ServerImpl>>,
+    // State(ctx): State<ReqwestClient>,
+    // State(basic_client): State<BasicClient>,
+    // State(store): State<MemoryStore>,
+) -> Result<impl IntoResponse, AppError> {
+    let code = query.code;
+    println!("code: {}", code);
+
+    let token = app.basic_client
+        .exchange_code(AuthorizationCode::new(code))
+        .request_async(async_http_client)
+        .await?;
+
+    println!("token: {:?}", token.scopes());
+
+    let profile = app.ctx
+        .get("https://openidconnect.googleapis.com/v1/userinfo")
+        .bearer_auth(token.access_token().secret().to_owned())
+        .send()
+        .await?;
+
+    // // let profile_response = profile.text().await.unwrap();
+    // // println!("UserProfile: {:?}", profile_response);
+    // // let user_profile = serde_json::from_str::<UserProfile>(&profile_response).unwrap();
+    //
+    let user_profile = profile.json::<UserProfile>().await.unwrap();
+
+    println!("UserProfile: {:?}", user_profile);
+
+    let mut headers = HeaderMap::new();
+
+    // // Ok((headers, Redirect::to("/")))
+
+    Ok("fakk")
 }
 
 fn build_oauth_client(

@@ -30,9 +30,6 @@ where
         .route("/meta/healthz",
             get(meta_healthz::<I, A>)
         )
-        .route("/oauth/google",
-            get(oauth_google::<I, A>)
-        )
         .with_state(api_impl)
 }
 
@@ -84,86 +81,6 @@ where
   let resp = match result {
                                             Ok(rsp) => match rsp {
                                                 apis::html::HelloWorldResponse::Status200_HelloWorld
-                                                    (body)
-                                                => {
-                                                  let mut response = response.status(200);
-                                                  {
-                                                    let mut response_headers = response.headers_mut().unwrap();
-                                                    response_headers.insert(
-                                                        CONTENT_TYPE,
-                                                        HeaderValue::from_str("text/html").map_err(|e| { error!(error = ?e); StatusCode::INTERNAL_SERVER_ERROR })?);
-                                                  }
-
-                                                  let body_content = body;
-                                                  response.body(Body::from(body_content))
-                                                },
-                                            },
-                                            Err(_) => {
-                                                // Application code returned an error. This should not happen, as the implementation should
-                                                // return a valid response.
-                                                response.status(500).body(Body::empty())
-                                            },
-                                        };
-
-                                        resp.map_err(|e| { error!(error = ?e); StatusCode::INTERNAL_SERVER_ERROR })
-}
-
-
-#[tracing::instrument(skip_all)]
-fn oauth_google_validation(
-  query_params: models::OauthGoogleQueryParams,
-) -> std::result::Result<(
-  models::OauthGoogleQueryParams,
-), ValidationErrors>
-{
-  query_params.validate()?;
-
-Ok((
-  query_params,
-))
-}
-/// OauthGoogle - GET /oauth/google
-#[tracing::instrument(skip_all)]
-async fn oauth_google<I, A>(
-  method: Method,
-  host: Host,
-  cookies: CookieJar,
-  Query(query_params): Query<models::OauthGoogleQueryParams>,
- State(api_impl): State<I>,
-) -> Result<Response, StatusCode>
-where
-    I: AsRef<A> + Send + Sync,
-    A: apis::html::Html,
-{
-
-      #[allow(clippy::redundant_closure)]
-      let validation = tokio::task::spawn_blocking(move ||
-    oauth_google_validation(
-        query_params,
-    )
-  ).await.unwrap();
-
-  let Ok((
-    query_params,
-  )) = validation else {
-    return Response::builder()
-            .status(StatusCode::BAD_REQUEST)
-            .body(Body::from(validation.unwrap_err().to_string()))
-            .map_err(|_| StatusCode::BAD_REQUEST);
-  };
-
-  let result = api_impl.as_ref().oauth_google(
-      method,
-      host,
-      cookies,
-        query_params,
-  ).await;
-
-  let mut response = Response::builder();
-
-  let resp = match result {
-                                            Ok(rsp) => match rsp {
-                                                apis::html::OauthGoogleResponse::Status200_OAuthResponsesForGoogle
                                                     (body)
                                                 => {
                                                   let mut response = response.status(200);

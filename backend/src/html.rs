@@ -4,10 +4,7 @@ use async_trait::async_trait;
 use axum::extract::Host;
 use axum::http::Method;
 use axum_extra::extract::CookieJar;
-use oauth2::reqwest::async_http_client;
-use oauth2::{AuthorizationCode, TokenResponse};
-use skjera_api::apis::html::{HelloWorldResponse, Html, OauthGoogleResponse};
-use skjera_api::models::OauthGoogleQueryParams;
+use skjera_api::apis::html::{HelloWorldResponse, Html};
 use url;
 
 #[derive(Template)]
@@ -50,60 +47,6 @@ impl Html for ServerImpl {
 
         match template.render() {
             Ok(text) => Ok(HelloWorldResponse::Status200_HelloWorld(text)),
-            Err(e) => Err(e.to_string()),
-        }
-    }
-
-    async fn oauth_google(
-        &self,
-        method: Method,
-        host: Host,
-        cookies: CookieJar,
-        query_params: OauthGoogleQueryParams,
-    ) -> Result<OauthGoogleResponse, String> {
-        let code = query_params.code.unwrap_or_default();
-        println!("code: {}", code);
-
-        let token = self
-            .basic_client
-            .exchange_code(AuthorizationCode::new(code))
-            .request_async(async_http_client)
-            .await;
-
-        if let Err(e) = token {
-            return Err(e.to_string());
-        }
-        let token = token.unwrap();
-
-        println!("token: {:?}", token.scopes());
-
-        let profile = self
-            .ctx
-            .get("https://openidconnect.googleapis.com/v1/userinfo")
-            .bearer_auth(token.access_token().secret().to_owned())
-            .send()
-            .await;
-
-        if let Err(e) = profile {
-            return Err(e.to_string());
-        }
-        let profile = profile.unwrap();
-
-        // let profile_response = profile.text().await.unwrap();
-        // println!("UserProfile: {:?}", profile_response);
-        // let user_profile = serde_json::from_str::<UserProfile>(&profile_response).unwrap();
-
-        let user_profile = profile.json::<UserProfile>().await.unwrap();
-
-        println!("UserProfile: {:?}", user_profile);
-
-        let template = HelloTemplate {
-            name: user_profile.name,
-            google_auth_url: None,
-        };
-
-        match template.render() {
-            Ok(text) => Ok(OauthGoogleResponse::Status200_OAuthResponsesForGoogle(text)),
             Err(e) => Err(e.to_string()),
         }
     }
