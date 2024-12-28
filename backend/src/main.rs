@@ -4,7 +4,6 @@ mod meta;
 mod model;
 mod skjera;
 
-use crate::html::{hello_world, me};
 use crate::model::*;
 use anyhow::Context;
 use async_session::{MemoryStore, Session, SessionStore};
@@ -122,7 +121,7 @@ impl ServerImpl {
         }
     }
 
-    fn api_some_account(s: &model::SomeAccount) -> skjera_api::models::SomeAccount {
+    fn api_some_account(s: &SomeAccount) -> skjera_api::models::SomeAccount {
         skjera_api::models::SomeAccount {
             id: s.id,
             network: s.network.to_string(),
@@ -139,8 +138,9 @@ async fn start_server(server_impl: ServerImpl, addr: &str) {
     let assets = Router::new().nest_service("/assets", ServeDir::new(assets_path));
 
     let app = Router::new()
-        .route("/", get(hello_world))
-        .route("/me", get(me))
+        .route("/", get(html::hello_world))
+        .route("/me", get(html::me))
+        .route("/employee/:employee_id", get(html::employee))
         .route("/oauth/google", get(oauth_google))
         .fallback_service(assets)
         .with_state(server_impl);

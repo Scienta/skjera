@@ -2,7 +2,7 @@ use crate::model::*;
 use crate::{AppError, ServerImpl, SessionUser};
 use anyhow::Context;
 use askama_axum::Template;
-use axum::extract::State;
+use axum::extract::{Path, State};
 use axum::response::Html;
 use url;
 use url::Url;
@@ -33,6 +33,39 @@ pub async fn me(
 }
 
 #[derive(Template)]
+#[template(path = "employee.html")]
+struct EmployeeTemplate {
+    employee: Employee,
+}
+
+impl EmployeeTemplate {
+    pub fn dob(&self) -> String {
+        match (self.employee.dob_month, self.employee.dob_day) {
+            (Some(m), Some(d)) => format!("{}-{}", m, d),
+            _ => "".to_string(),
+        }
+    }
+}
+
+pub async fn employee(
+    State(app): State<ServerImpl>,
+    _user: SessionUser,
+    Path(employee_id): Path<i64>,
+) -> Result<Html<String>, AppError> {
+    let employee = app
+        .employee_dao
+        .employee_by_id(employee_id)
+        .await?
+        .context("error loading me")?;
+
+    let template = EmployeeTemplate {
+        employee,
+    };
+
+    Ok(Html(template.render()?))
+}
+
+#[derive(Template)]
 #[template(path = "hello.html"/*, print = "all"*/)]
 struct HelloTemplate {
     pub name: String,
@@ -52,6 +85,8 @@ pub async fn hello_world(
     if user.is_some() {
         let user = user.unwrap();
         name = user.email;
+
+        employees = Some(app.employee_dao.employees().await?);
     } else {
         let u = Url::parse_with_params(
             "https://accounts.google.com/o/oauth2/v2/auth",
@@ -64,8 +99,6 @@ pub async fn hello_world(
         )?
         .to_string();
         url = Some(u);
-
-        employees = Some(app.employee_dao.employees().await?);
     }
 
     let template = HelloTemplate {

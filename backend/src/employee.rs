@@ -29,6 +29,16 @@ impl EmployeeDao {
         .await
     }
 
+    pub(crate) async fn employee_by_id(&self, id: i64) -> Result<Option<Employee>, Error> {
+        sqlx::query_as!(
+            Employee,
+            "SELECT id, email, name, dob_month, dob_day FROM skjera.employee WHERE id=$1",
+            id
+        )
+        .fetch_optional(&self.pool)
+        .await
+    }
+
     pub(crate) async fn employee_by_email(&self, email: String) -> Result<Option<Employee>, Error> {
         sqlx::query_as!(
             Employee,
