@@ -19,7 +19,7 @@ skjera_api = { version = "1.0.0", path = "../skjera_api" }
 sqlx = { version = "0.8.2", features = ["runtime-tokio-native-tls", "sqlite", "postgres"] }
 tokio = { version = "1.42.0", features = ["rt", "rt-multi-thread", "macros"] }
 tower-http = { version = "0.6.2", features = ["fs", "trace"] }
-tracing = "0.1.41"
+tracing = { version =  "0.1.41" , features = ["log"]}
 tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
 url = "2.5.4"
 headers = "0.4.0"

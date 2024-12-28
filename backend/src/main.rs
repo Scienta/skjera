@@ -30,6 +30,7 @@ use std::process::exit;
 use tokio::net::TcpListener;
 use tokio::signal;
 use tower_http::{services::ServeDir, trace::TraceLayer};
+use tracing::{debug, instrument, span, Level};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 static COOKIE_NAME: &str = "SESSION";
@@ -84,7 +85,7 @@ async fn main() {
     start_server(server_impl, "0.0.0.0:8080").await
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 struct ServerImpl {
     pool: sqlx::PgPool,
     assets_path: String,
@@ -173,7 +174,7 @@ async fn shutdown_signal() {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 struct Config {
     pub client_id: String,
     pub client_secret: String,
@@ -227,27 +228,32 @@ where
     }
 }
 
+#[instrument] // #TODO: this should probably not wrap the State() part here
 async fn oauth_google(
     Query(query): Query<AuthRequest>,
     State(app): State<ServerImpl>,
 ) -> Result<impl IntoResponse, AppError> {
     let code = query.code;
-    println!("code: {}", code);
+    debug!("code: {}", code);
 
-    let token = app
-        .basic_client
-        .exchange_code(AuthorizationCode::new(code))
-        .request_async(async_http_client)
-        .await?;
+    let token = {
+        let _span = span!(Level::DEBUG, "exchange_code");
+        app.basic_client
+            .exchange_code(AuthorizationCode::new(code))
+            .request_async(async_http_client)
+            .await?
+    };
 
     println!("token: {:?}", token.scopes());
 
-    let profile = app
-        .ctx
-        .get("https://openidconnect.googleapis.com/v1/userinfo")
-        .bearer_auth(token.access_token().secret().to_owned())
-        .send()
-        .await?;
+    let profile = {
+        let _span = span!(Level::DEBUG, "get_token");
+        app.ctx
+            .get("https://openidconnect.googleapis.com/v1/userinfo")
+            .bearer_auth(token.access_token().secret().to_owned())
+            .send()
+            .await?
+    };
 
     // // let profile_response = profile.text().await.unwrap();
     // // println!("UserProfile: {:?}", profile_response);
@@ -361,24 +367,3 @@ where
         Ok(user)
     }
 }
-
-/*
-// impl<S> OptionalFromRequestParts<S> for SessionUser
-impl<S> FromRequestParts<S> for Option<SessionUser>
-where
-    MemoryStore: FromRef<S>,
-    S: Send + Sync,
-{
-    type Rejection = Infallible;
-
-    async fn from_request_parts(
-        parts: &mut Parts,
-        state: &S,
-    ) -> Result<Option<Self>, Self::Rejection> {
-        match <SessionUser as FromRequestParts<S>>::from_request_parts(parts, state).await {
-            Ok(res) => Ok(Some(res)),
-            Err(AuthRedirect) => Ok(None),
-        }
-    }
-}
-*/
