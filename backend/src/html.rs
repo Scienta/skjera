@@ -68,7 +68,7 @@ pub async fn employee(
 #[derive(Template)]
 #[template(path = "hello.html"/*, print = "all"*/)]
 struct HelloTemplate {
-    pub name: String,
+    pub user: Option<SessionUser>,
     pub google_auth_url: Option<String>,
     pub employees: Option<Vec<Employee>>,
 }
@@ -79,13 +79,9 @@ pub async fn hello_world(
 ) -> Result<Html<String>, AppError> {
     let scope = "openid profile email";
 
-    let mut name = "world".to_string();
     let mut employees = None::<Vec<Employee>>;
     let mut url = None::<String>;
     if user.is_some() {
-        let user = user.unwrap();
-        name = user.email;
-
         employees = Some(app.employee_dao.employees().await?);
     } else {
         let u = Url::parse_with_params(
@@ -102,7 +98,7 @@ pub async fn hello_world(
     }
 
     let template = HelloTemplate {
-        name,
+        user,
         google_auth_url: url,
         employees,
     };

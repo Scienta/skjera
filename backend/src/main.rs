@@ -266,13 +266,17 @@ async fn oauth_google(
     // // let user_profile = serde_json::from_str::<UserProfile>(&profile_response).unwrap();
     //
     let user_profile = profile.json::<GoogleUserProfile>().await?;
-
     debug!("UserProfile: {:?}", user_profile);
+
+    let session_user = SessionUser {
+        email: user_profile.email,
+        name: user_profile.name,
+    };
 
     // Create a new session filled with user data
     let mut session = Session::new();
     session
-        .insert("user", &user_profile)
+        .insert("user", &session_user)
         .context("failed in inserting serialized value into session")?;
 
     // Store session and get corresponding cookie
@@ -329,13 +333,14 @@ pub struct AuthRedirect;
 
 impl IntoResponse for AuthRedirect {
     fn into_response(self) -> Response {
-        Redirect::temporary("/auth/discord").into_response()
+        Redirect::temporary("/").into_response()
     }
 }
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct SessionUser {
     email: String,
+    name: String,
 }
 
 #[async_trait]
