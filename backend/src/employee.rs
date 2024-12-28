@@ -48,4 +48,17 @@ impl EmployeeDao {
         .fetch_optional(&self.pool)
         .await
     }
+
+    pub(crate) async fn update(&self, employee: &Employee) -> Result<Employee, Error> {
+        sqlx::query_as!(
+            Employee,
+            "UPDATE skjera.employee SET dob_month=$1, dob_day=$2 WHERE id=$3
+                RETURNING id, email, name, dob_month, dob_day",
+            employee.dob_month,
+            employee.dob_day,
+            employee.id,
+        )
+        .fetch_one(&self.pool)
+        .await
+    }
 }

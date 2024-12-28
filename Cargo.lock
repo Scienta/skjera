@@ -2451,6 +2451,7 @@ dependencies = [
  "dotenv",
  "headers",
  "oauth2",
+ "once_cell",
  "reqwest 0.12.9",
  "serde",
  "skjera_api",

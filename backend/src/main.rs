@@ -14,7 +14,7 @@ use axum::http::header::SET_COOKIE;
 use axum::http::request::Parts;
 use axum::http::{header, HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Redirect, Response};
-use axum::routing::get;
+use axum::routing::{get, post};
 use axum::{RequestPartsExt, Router};
 use axum_extra::typed_header::TypedHeaderRejectionReason;
 use axum_extra::TypedHeader;
@@ -139,7 +139,8 @@ async fn start_server(server_impl: ServerImpl, addr: &str) {
 
     let app = Router::new()
         .route("/", get(html::hello_world))
-        .route("/me", get(html::me))
+        .route("/me", get(html::get_me))
+        .route("/me", post(html::post_me))
         .route("/employee/:employee_id", get(html::employee))
         .route("/oauth/google", get(oauth_google))
         .fallback_service(assets)
