@@ -6,4 +6,4 @@ services:
     environment:
       POSTGRES_PASSWORD: postgres
     volumes:
-      - ./docker.tmp:/var/lib/postgresql/data
+      - ../skjera-docker.tmp:/var/lib/postgresql/data
