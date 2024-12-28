@@ -2,6 +2,7 @@ DATABASE_URL_BACKEND=postgres://skjera-backend:skjera-backend@localhost:5555/skj
 DATABASE_URL_OWNER=postgres://skjera-owner:skjera-owner@localhost:5555/skjera
 
 all: target/debug/skjera
+	cargo sqlx prepare --workspace
 
 target/debug/skjera: skjera_api/Cargo.toml $(wildcard backend/* backend/*/*)
 	DATABASE_URL=$(DATABASE_URL_BACKEND) \

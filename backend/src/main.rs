@@ -31,7 +31,7 @@ use std::process::exit;
 use tokio::net::TcpListener;
 use tokio::signal;
 use tower_http::{services::ServeDir, trace::TraceLayer};
-use tracing::{debug, span, Level};
+use tracing::{debug, info, span, Level};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 static COOKIE_NAME: &str = "SESSION";
@@ -46,7 +46,9 @@ async fn main() {
         .with(tracing_subscriber::fmt::layer())
         .init();
 
-    dotenv::dotenv().unwrap();
+    // We don't care if there is a problem here
+    let env = dotenv::dotenv();
+    let is_local = env.is_ok();
 
     let options = match std::env::var("DATABASE_URL") {
         Ok(url) => match url.parse::<PgConnectOptions>() {
@@ -59,8 +61,10 @@ async fn main() {
         Err(_) => PgConnectOptions::default(),
     };
 
+    info!("DATABASE_URL: {:?}", &options);
+
     let pool = sqlx::postgres::PgPool::connect_lazy_with(options);
-    let assets_path = "backend/assets".to_string();
+    let assets_path = if is_local { "backend/assets" } else { "assets" }.to_string();
     let ctx = ReqwestClient::new();
     let cfg = match Config::new() {
         Ok(c) => c,
