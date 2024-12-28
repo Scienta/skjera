@@ -1,15 +1,43 @@
+use crate::model::*;
 use crate::{AppError, ServerImpl, SessionUser};
-use askama_axum::{Template};
+use anyhow::Context;
+use askama_axum::Template;
 use axum::extract::State;
 use axum::response::Html;
 use url;
 use url::Url;
 
 #[derive(Template)]
+#[template(path = "me.html")]
+struct MeTemplate {
+    pub dob_month: Option<i32>,
+    pub dob_day: Option<i32>,
+}
+
+pub async fn me(
+    State(app): State<ServerImpl>,
+    user: SessionUser,
+) -> Result<Html<String>, AppError> {
+    let me = app
+        .employee_dao
+        .employee_by_email(user.email)
+        .await?
+        .context("error loading me")?;
+
+    let template = MeTemplate {
+        dob_month: me.dob_month,
+        dob_day: me.dob_day,
+    };
+
+    Ok(Html(template.render()?))
+}
+
+#[derive(Template)]
 #[template(path = "hello.html"/*, print = "all"*/)]
 struct HelloTemplate {
     pub name: String,
     pub google_auth_url: Option<String>,
+    pub employees: Option<Vec<Employee>>,
 }
 
 pub async fn hello_world(
@@ -19,6 +47,7 @@ pub async fn hello_world(
     let scope = "openid profile email";
 
     let mut name = "world".to_string();
+    let mut employees = None::<Vec<Employee>>;
     let mut url = None::<String>;
     if user.is_some() {
         let user = user.unwrap();
@@ -32,13 +61,17 @@ pub async fn hello_world(
                 ("response_type", "code"),
                 ("redirect_uri", &app.cfg.redirect_url),
             ],
-        )?.to_string();
-        url = Some(u)
+        )?
+        .to_string();
+        url = Some(u);
+
+        employees = Some(app.employee_dao.employees().await?);
     }
 
     let template = HelloTemplate {
         name,
         google_auth_url: url,
+        employees,
     };
 
     Ok(Html(template.render()?))

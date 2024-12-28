@@ -1,10 +1,4 @@
-#[derive(Debug, Clone, sqlx::FromRow)]
-pub struct Employee {
-    pub id: i64,
-    pub email: String,
-    pub name: String,
-    // pub some_accounts: Vec<SomeAccount>,
-}
+pub use crate::employee::*;
 
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct SomeAccount {

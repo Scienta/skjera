@@ -1,9 +1,11 @@
+mod employee;
 mod html;
 mod meta;
 mod model;
 mod skjera;
 
-use crate::html::hello_world;
+use crate::html::{hello_world, me};
+use crate::model::*;
 use anyhow::Context;
 use async_session::{MemoryStore, Session, SessionStore};
 use async_trait::async_trait;
@@ -30,7 +32,7 @@ use std::process::exit;
 use tokio::net::TcpListener;
 use tokio::signal;
 use tower_http::{services::ServeDir, trace::TraceLayer};
-use tracing::{debug, instrument, span, Level};
+use tracing::{debug, span, Level};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 static COOKIE_NAME: &str = "SESSION";
@@ -74,11 +76,12 @@ async fn main() {
         cfg.client_secret.clone(),
     );
     let server_impl = ServerImpl {
-        pool,
+        pool: pool.clone(),
         assets_path,
         ctx,
         cfg,
         basic_client,
+        employee_dao: EmployeeDao::new(pool),
         store: MemoryStore::new(),
     };
 
@@ -93,6 +96,7 @@ struct ServerImpl {
     cfg: Config,
     basic_client: BasicClient,
     store: MemoryStore,
+    pub employee_dao: EmployeeDao,
 }
 
 impl FromRef<ServerImpl> for MemoryStore {
@@ -103,8 +107,8 @@ impl FromRef<ServerImpl> for MemoryStore {
 
 impl ServerImpl {
     fn api_employee(
-        e: &model::Employee,
-        some_accounts: &Vec<model::SomeAccount>,
+        e: &Employee,
+        some_accounts: &Vec<SomeAccount>,
     ) -> skjera_api::models::Employee {
         skjera_api::models::Employee {
             // id: e.id,
@@ -136,6 +140,7 @@ async fn start_server(server_impl: ServerImpl, addr: &str) {
 
     let app = Router::new()
         .route("/", get(hello_world))
+        .route("/me", get(me))
         .route("/oauth/google", get(oauth_google))
         .fallback_service(assets)
         .with_state(server_impl);
@@ -228,11 +233,12 @@ where
     }
 }
 
-#[instrument] // #TODO: this should probably not wrap the State() part here
 async fn oauth_google(
     Query(query): Query<AuthRequest>,
     State(app): State<ServerImpl>,
 ) -> Result<impl IntoResponse, AppError> {
+    let _method = span!(Level::INFO, "oauth_google");
+
     let code = query.code;
     debug!("code: {}", code);
 
@@ -244,7 +250,7 @@ async fn oauth_google(
             .await?
     };
 
-    println!("token: {:?}", token.scopes());
+    debug!("token: {:?}", token.scopes());
 
     let profile = {
         let _span = span!(Level::DEBUG, "get_token");
@@ -261,7 +267,7 @@ async fn oauth_google(
     //
     let user_profile = profile.json::<GoogleUserProfile>().await?;
 
-    println!("UserProfile: {:?}", user_profile);
+    debug!("UserProfile: {:?}", user_profile);
 
     // Create a new session filled with user data
     let mut session = Session::new();
