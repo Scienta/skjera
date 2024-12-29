@@ -7,7 +7,6 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}
   DATABASE_URL: postgres://skjera-owner:skjera-owner@localhost/skjera
   DEBIAN_FRONTEND: noninteractive
 
@@ -59,7 +58,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/${{ github.event.repository.name }}
+          images: ${{ env.REGISTRY }}/${{ github.event.repository.name }}
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
