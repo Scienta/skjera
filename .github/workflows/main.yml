@@ -12,7 +12,7 @@ env:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
       packages: write
@@ -39,8 +39,8 @@ jobs:
 
       - shell: bash
         run: |
-          apt update
-          apt install --no-install-recommends --yes postgresql-client
+          # apt update
+          # apt install --no-install-recommends --yes postgresql-client
           psql -f init.sql
         env:
           PGUSER: postgres
