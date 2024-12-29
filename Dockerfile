@@ -2,7 +2,6 @@
 FROM rust:1.83-bullseye AS builder
 
 ARG BUILD_ARGS=""
-ARG DEBIAN_FRONTEND=noninteractive
 
 WORKDIR /builder
 
@@ -20,10 +19,11 @@ RUN cargo build $BUILD_ARGS
 FROM debian:bullseye AS app
 
 ARG TARGET_DIR="debug"
+ARG DEBIAN_FRONTEND=noninteractive
 
 WORKDIR /app
 
-RUN apt-get update && apt install --no-install-recommends --yes ca-certificates
+RUN apt-get update && apt-get install --no-install-recommends --yes ca-certificates
 COPY --from=builder /builder/target/$TARGET_DIR/skjera /
 COPY --from=builder /builder/backend/assets ./assets
 
