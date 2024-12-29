@@ -1,3 +1,6 @@
 /target
 /bin/.*
 .env
+*.tmp.*
+tmp
+*.tmp
