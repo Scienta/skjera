@@ -2,6 +2,7 @@
 FROM rust:1.83-bullseye AS builder
 
 ARG BUILD_ARGS=""
+ARG DEBIAN_FRONTEND=noninteractive
 
 WORKDIR /builder
 

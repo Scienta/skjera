@@ -8,6 +8,7 @@ on:
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
+  DATABASE_URL: postgres://skjera-owner:skjera-owner@localhost:5555/skjera
 
 jobs:
   build:
@@ -15,11 +16,43 @@ jobs:
     permissions:
       contents: read
       packages: write
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
     steps:
-      - id: extract_branch
-        name: Extract branch name
-        shell: bash
-        run: echo "branch=${GITHUB_HEAD_REF:-${GITHUB_REF#refs/heads/}}" >> $GITHUB_OUTPUT
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+      - run: |
+          [[ -x $(which sqlx) ]] || cargo install sqlx-cli
+
+      - uses: actions/checkout@v4
+
+      - shell: bash
+        run: |
+          apt update
+          apt install --no-install-recommends --yes postgresql-client
+          psql -f init.sql
+        env:
+          PGUSER: postgres
+          PGPASSWORD: postgres
+          PGHOST: localhost
+
+      - shell: bash
+        run: |
+          sqlx migrate run
+          cargo sqlx prepare --workspace
+          
+          find .sqlx
 
       - name: Extract Docker image metadata
         id: meta
@@ -33,7 +66,10 @@ jobs:
       - name: Build and push
         uses: docker/build-push-action@v6
         with:
-          push: ${{ github.event_name != 'pull_request' }}
-          tags: ${{ steps.meta.outputs.tags }}
-          annotations: ${{ steps.meta.outputs.annotations }}
+          context: .
+#          push: ${{ github.event_name != 'pull_request' }}
+          push: false
+#          tags: ${{ steps.meta.outputs.tags }}
+#          annotations: ${{ steps.meta.outputs.annotations }}
 #          tags: ${{ vars.DOCKER_USERNAME }}/${{ github.event.repository.name }}:${{ steps.extract_branch.outputs.branch }}
+          tags: foo
