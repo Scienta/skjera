@@ -27,7 +27,9 @@
             <a href="/employee/{{ employee.id }}">{{ employee.name }}</a>
         </td>
         <td>
-            {{ employee.dob_day|fmt("{:?}") }} {{ employee.dob_month|fmt("{:?}") }}
+            {% if let Some(dob) = employee.dob %}
+            {{ dob.day()|fmt("{:?}") }}{{ dob.month()|fmt("{:?}") }}
+            {% endif %}
         </td>
     </tr>
     {% endfor %}

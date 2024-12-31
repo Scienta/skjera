@@ -7,6 +7,7 @@ use axum::response::{Html, Redirect};
 use axum::Form;
 use once_cell::sync::Lazy;
 use serde::Deserialize;
+use time::{format_description, Date, Month};
 use tracing::debug;
 use url;
 use url::Url;
@@ -50,8 +51,8 @@ pub async fn get_me(
     let template = MeTemplate {
         month_names: MONTH_NAMES.as_slice(),
         days: (1..31).collect::<Vec<i32>>(),
-        dob_month: me.dob_month.unwrap_or_default().try_into().unwrap_or_default(),
-        dob_day: me.dob_day.unwrap_or_default().try_into().unwrap_or_default(),
+        dob_month: me.dob.map(|d| d.month() as usize).unwrap_or_default(),
+        dob_day: me.dob.map(|d| d.day() as usize).unwrap_or_default(),
     };
 
     Ok(Html(template.render()?))
@@ -59,8 +60,8 @@ pub async fn get_me(
 
 #[derive(Deserialize, Debug)]
 pub(crate) struct MeForm {
-    dob_month: i32,
-    dob_day: i32,
+    dob_month: u8,
+    dob_day: u8,
 }
 
 pub async fn post_me(
@@ -76,14 +77,19 @@ pub async fn post_me(
         .await?
         .context("error loading me")?;
 
-    if input.dob_month >= 1 && input.dob_day >= 1 {
-        me.dob_month = Some(input.dob_month);
-        me.dob_day = Some(input.dob_day);
+    let year = me.dob.map(|dob| dob.year()).unwrap_or_else(|| 1900);
+    let month: Option<Month> = input.dob_month.try_into().ok();
 
-        me = app.employee_dao.update(&me).await?;
+    let dob: Option<Date> = match (month, input.dob_day) {
+        (Some(m), d) if d >= 1 => Date::from_calendar_date(year, m, d).ok(),
+        _ => None,
+    };
 
-        debug!("Updated Employee: {:?}", me);
-    }
+    me.dob = dob;
+
+    me = app.employee_dao.update(&me).await?;
+
+    debug!("Updated Employee: {:?}", me);
 
     Ok(Redirect::to("/"))
 }
@@ -96,8 +102,12 @@ struct EmployeeTemplate {
 
 impl EmployeeTemplate {
     pub fn dob(&self) -> String {
-        match (self.employee.dob_month, self.employee.dob_day) {
-            (Some(m), Some(d)) => format!("{}-{}", m, d),
+        let f = format_description::parse("[year]-[month]-[day]")
+            .ok()
+            .unwrap();
+
+        match self.employee.dob {
+            Some(dob) => dob.format(&f).ok().unwrap_or_default(),
             _ => "".to_string(),
         }
     }
