@@ -39,9 +39,7 @@ jobs:
 
       - shell: bash
         run: |
-          # apt update
-          # apt install --no-install-recommends --yes postgresql-client
-          psql -f init.sql
+          psql -f migrations/00-create.sql
         env:
           PGUSER: postgres
           PGPASSWORD: postgres
