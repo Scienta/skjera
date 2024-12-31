@@ -10,4 +10,4 @@ export PGPORT=5555
 export PGUSER=postgres
 export PGPASSWORD=postgres
 
-export DATABASE_URL="postgres://skjera-owner:skjera-owner@localhost/skjera"
+export DATABASE_URL="postgres://localhost/skjera"

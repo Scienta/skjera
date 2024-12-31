@@ -31,7 +31,7 @@ use std::process::exit;
 use tokio::net::TcpListener;
 use tokio::signal;
 use tower_http::{services::ServeDir, trace::TraceLayer};
-use tracing::{debug, info, span, Level};
+use tracing::{debug, info, span, warn, Level};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 static COOKIE_NAME: &str = "SESSION";
@@ -45,6 +45,8 @@ async fn main() {
         )
         .with(tracing_subscriber::fmt::layer())
         .init();
+
+    warn!("skjera starting");
 
     // We don't care if there is a problem here
     let env = dotenv::dotenv();
@@ -62,6 +64,11 @@ async fn main() {
     };
 
     info!("DATABASE_URL: {:?}", &options);
+
+    // match run_migrations(options.clone()).await {
+    //     Ok(_) => info!("migrations applies"),
+    //     Err(err) => warn!("could not apply migrations: {}", err),
+    // }
 
     let pool = sqlx::postgres::PgPool::connect_lazy_with(options);
     let assets_path = if is_local { "backend/assets" } else { "assets" }.to_string();
@@ -90,6 +97,28 @@ async fn main() {
 
     start_server(server_impl, "0.0.0.0:8080").await
 }
+
+// async fn run_migrations(pg_options: PgConnectOptions) -> Result<(), anyhow::Error> {
+//     let postgres_pool = PgPoolOptions::new()
+//         .max_connections(1)
+//         .after_connect(|conn, _meta| {
+//             Box::pin(async move {
+//                 conn.execute("SET search_path = 'public';").await?;
+//                 Ok(())
+//             })
+//         })
+//         .connect_with(pg_options)
+//         .await
+//         .map_err(|e| anyhow::anyhow!(e))?;
+//
+//     let migrator = Migrator::new(Path::new("./migrations"))
+//         .await
+//         .map_err(|e| anyhow::anyhow!(e))?;
+//     migrator
+//         .run(&postgres_pool)
+//         .await
+//         .map_err(|e| anyhow::anyhow!(e))
+// }
 
 #[derive(Clone, Debug)]
 struct ServerImpl {
@@ -154,6 +183,7 @@ async fn start_server(server_impl: ServerImpl, addr: &str) {
 
     // Run the server with graceful shutdown
     let listener = TcpListener::bind(addr).await.unwrap();
+    info!("skjera is listening on {}", addr);
     axum::serve(listener, app)
         .with_graceful_shutdown(shutdown_signal())
         .await

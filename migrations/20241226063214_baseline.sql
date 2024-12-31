@@ -10,7 +10,7 @@ CREATE TABLE skjera.employee
     PRIMARY KEY (id)
 );
 
-GRANT ALL ON skjera.employee TO "skjera-backend";
+-- GRANT ALL ON skjera.employee TO "skjera-backend";
 
 CREATE TABLE skjera.some_account
 (
@@ -23,7 +23,7 @@ CREATE TABLE skjera.some_account
     PRIMARY KEY (id)
 );
 
-GRANT ALL ON skjera.some_account TO "skjera-backend";
+-- GRANT ALL ON skjera.some_account TO "skjera-backend";
 
 INSERT INTO skjera.employee(email, name)
 VALUES ('trygvis@scienta.no', 'Trygve Laugstøl'),
