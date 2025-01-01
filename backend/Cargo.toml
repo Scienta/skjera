@@ -12,16 +12,16 @@ async-trait = "0.1.83"
 axum = "0.7"
 axum-extra = { version = "0.9", features = ["cookie", "multipart", "typed-header"] }
 dotenv = "0.15.0"
+headers = "0.4.0"
 oauth2 = "4.4.2"
+once_cell = "1.20.2"
 reqwest = { version = "0.12.9", features = ["json"] }
 serde = { version = "1.0.216", features = ["derive"] }
 skjera_api = { version = "1.0.0", path = "../skjera_api" }
 sqlx = { version = "0.8.2", features = ["runtime-tokio-native-tls", "sqlite", "postgres", "time", "uuid"] }
+time = "0.3.37"
 tokio = { version = "1.42.0", features = ["rt", "rt-multi-thread", "macros"] }
 tower-http = { version = "0.6.2", features = ["fs", "trace"] }
-tracing = { version =  "0.1.41" , features = ["log"]}
+tracing = { version = "0.1.41", features = ["log"] }
 tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
 url = "2.5.4"
-headers = "0.4.0"
-once_cell = "1.20.2"
-time = "0.3.37"
