@@ -23,5 +23,6 @@ time = "0.3.37"
 tokio = { version = "1.42.0", features = ["rt", "rt-multi-thread", "macros"] }
 tower-http = { version = "0.6.2", features = ["fs", "trace"] }
 tracing = { version = "0.1.41", features = ["log"] }
+tracing-loki = "0.2.5"
 tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
 url = "2.5.4"

@@ -27,30 +27,29 @@ use reqwest::Client as ReqwestClient;
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgConnectOptions;
 use std::path::Path;
+use std::process;
 use std::process::exit;
 use tokio::net::TcpListener;
 use tokio::signal;
 use tower_http::{services::ServeDir, trace::TraceLayer};
 use tracing::{debug, info, span, warn, Level};
+use tracing_loki;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
+use url::Url;
 
 static COOKIE_NAME: &str = "SESSION";
 
 #[tokio::main]
 async fn main() {
-    tracing_subscriber::registry()
-        .with(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| format!("{}=debug", env!("CARGO_CRATE_NAME")).into()),
-        )
-        .with(tracing_subscriber::fmt::layer())
-        .init();
-
-    warn!("skjera starting");
-
     // We don't care if there is a problem here
     let env = dotenv::dotenv();
     let is_local = env.is_ok();
+
+    if let Err(err) = configure_logging() {
+        println!("{}", err);
+    }
+
+    warn!("skjera starting");
 
     let options = match std::env::var("DATABASE_URL") {
         Ok(url) => match url.parse::<PgConnectOptions>() {
@@ -98,6 +97,61 @@ async fn main() {
     start_server(server_impl, "0.0.0.0:8080").await
 }
 
+fn configure_logging() -> Result<(), anyhow::Error> {
+    let mut configure_console = true;
+
+    if let Ok(loki_url) = std::env::var("LOKI_URL") {
+        let loki_token = std::env::var("LOKI_TOKEN").ok();
+
+        configure_loki(Url::parse(&loki_url)?, loki_token)?;
+        configure_console = false;
+    }
+
+    if configure_console {
+        tracing_subscriber::registry()
+            .with(
+                tracing_subscriber::EnvFilter::try_from_default_env()
+                    .unwrap_or_else(|_| format!("{}=debug", env!("CARGO_CRATE_NAME")).into()),
+            )
+            .with(tracing_subscriber::fmt::layer())
+            .init();
+    };
+
+    Ok(())
+}
+
+fn configure_loki(loki_url: Url, loki_token: Option<String>) -> Result<(), anyhow::Error> {
+    let mut b = tracing_loki::builder()
+        .label("host", "mine")?
+        .extra_field("pid", format!("{}", process::id()))?;
+
+    if let Some(loki_token) = loki_token {
+        b = b.http_header("Authorization", format!("Bearer {}", loki_token))?
+        // b = b.http_header("X-Token", loki_token)?
+    }
+
+    let (layer, task) = b.build_url(loki_url.clone())?;
+
+    // We need to register our layer with `tracing`.
+    tracing_subscriber::registry()
+        .with(layer)
+        .with(tracing_subscriber::fmt::layer())
+        .init();
+
+    // The background task needs to be spawned so the logs actually get
+    // delivered.
+    tokio::spawn(task);
+
+    println!("Logging to Loki: {}", loki_url);
+
+    info!(
+        task = "tracing_setup",
+        result = "success",
+        "tracing successfully set up",
+    );
+
+    Ok(())
+}
 // async fn run_migrations(pg_options: PgConnectOptions) -> Result<(), anyhow::Error> {
 //     let postgres_pool = PgPoolOptions::new()
 //         .max_connections(1)
