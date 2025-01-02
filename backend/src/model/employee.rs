@@ -45,6 +45,21 @@ impl EmployeeDao {
         .await
     }
 
+    pub(crate) async fn insert_employee(
+        &self,
+        email: String,
+        name: String,
+    ) -> Result<Employee, Error> {
+        sqlx::query_as!(
+            Employee,
+            "INSERT INTO skjera.employee (email, name) VALUES($1, $2) RETURNING *",
+            email,
+            name
+        )
+        .fetch_one(&self.pool)
+        .await
+    }
+
     pub(crate) async fn update(&self, employee: &Employee) -> Result<Employee, Error> {
         sqlx::query_as!(
             Employee,

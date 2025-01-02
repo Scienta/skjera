@@ -1,8 +1,8 @@
 mod html;
+mod macros;
 mod meta;
 mod model;
 mod skjera;
-mod macros;
 
 use crate::model::*;
 use anyhow::Context;
@@ -228,7 +228,10 @@ async fn start_server(server_impl: ServerImpl, addr: &str) {
         .route("/", get(html::hello_world))
         .route("/me", get(html::get_me))
         .route("/me", post(html::post_me))
-        .route("/me/some_account/:some_account_id/delete", post(html::delete_some_account))
+        .route(
+            "/me/some_account/:some_account_id/delete",
+            post(html::delete_some_account),
+        )
         .route("/employee/:employee_id", get(html::employee))
         .route("/oauth/google", get(oauth_google))
         .fallback_service(assets)
@@ -351,14 +354,25 @@ async fn oauth_google(
             .await?
     };
 
-    // // let profile_response = profile.text().await.unwrap();
-    // // println!("UserProfile: {:?}", profile_response);
-    // // let user_profile = serde_json::from_str::<UserProfile>(&profile_response).unwrap();
-    //
+    // let profile_response = profile.text().await.unwrap();
+    // println!("UserProfile: {:?}", profile_response);
+    // let user_profile = serde_json::from_str::<UserProfile>(&profile_response).unwrap();
+
     let user_profile = profile.json::<GoogleUserProfile>().await?;
     debug!("UserProfile: {:?}", user_profile);
 
+    let employee = app
+        .employee_dao
+        .employee_by_email(user_profile.email.clone())
+        .await?;
+
+    let employee = match employee {
+        Some(e) => e,
+        None => create_employee(&app, &user_profile).await?,
+    };
+
     let session_user = SessionUser {
+        employee: employee.id,
         email: user_profile.email,
         name: user_profile.name,
     };
@@ -388,6 +402,20 @@ async fn oauth_google(
     );
 
     Ok((headers, Redirect::to("/")))
+}
+
+async fn create_employee(
+    app: &ServerImpl,
+    user_profile: &GoogleUserProfile,
+) -> Result<Employee, anyhow::Error> {
+    let employee = app
+        .employee_dao
+        .insert_employee(user_profile.email.clone(), user_profile.name.clone())
+        .await?;
+
+    info!("Created new employee: {:?}", employee);
+
+    Ok(employee)
 }
 
 fn build_oauth_client(
@@ -429,6 +457,7 @@ impl IntoResponse for AuthRedirect {
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct SessionUser {
+    employee: EmployeeId,
     email: String,
     name: String,
 }
