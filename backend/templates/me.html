@@ -6,28 +6,42 @@
 </head>
 <body>
 <h1>Edit profile</h1>
-<p>
-    month: {{ dob_month }}<br>
-    day:   {{ dob_day }}
-</p>
 <form action="/me" method="POST">
-    <label for="dob_month">Month of birth</label>
-    <select name="dob_month" id="dob_month">
-        {% for month in month_names %}
-        <option value="{{ loop.index }}"
-                {% if loop.index == dob_month %}selected{% endif %}>{{ month }}</option>
-        {% endfor %}
-    </select>
-
-    <label for="dob_day">Day of birth</label>
-    <select name="dob_day" id="dob_day">
-        {% for day in days %}
-        <option value="{{ loop.index }}"
-                {% if loop.index == dob_day %}selected{% endif %}>{{ day }}</option>
-        {% endfor %}
-    </select>
-
-    <button>Save</button>
+<table>
+<tr>
+    <td>
+        <label for="dob_month">Month of birth</label>
+    </td>
+    <td>
+        <select name="dob_month" id="dob_month">
+            {% for month in month_names %}
+            <option value="{{ loop.index }}"
+                    {%- if loop.index == dob_month %} selected{% endif -%}
+            >{{ month }}</option>
+            {% endfor %}
+        </select>
+    </td>
+</tr>
+<tr>
+    <td>
+        <label for="dob_day">Day of birth</label>
+    </td>
+    <td>
+        <select name="dob_day" id="dob_day">
+            {% for day in days %}
+            <option value="{{ loop.index }}"
+                    {%- if loop.index == dob_day %} selected{% endif -%}
+            >{{ day }}</option>
+            {% endfor %}
+        </select>
+    </td>
+</tr>
+<tr>
+    <td colspan="2">
+        <button>Save</button>
+    </td>
+</tr>
+</table>
 </form>
 </body>
 </html>
