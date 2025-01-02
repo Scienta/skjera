@@ -141,6 +141,11 @@ fn configure_logging() -> Result<LoggerProvider, anyhow::Error> {
     tracing_subscriber::registry()
         .with(filter)
         .with(layer)
+        .with(
+            EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| format!("{}=debug", env!("CARGO_CRATE_NAME")).into()),
+        )
+        .with(tracing_subscriber::fmt::layer())
         .init();
 
     Ok(logger_provider)
