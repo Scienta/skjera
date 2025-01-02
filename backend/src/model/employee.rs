@@ -1,5 +1,5 @@
 use crate::id_type;
-use crate::model::SomeAccount;
+use crate::model::*;
 use sqlx::types::time::Date;
 use sqlx::*;
 
@@ -72,12 +72,12 @@ impl EmployeeDao {
 
     pub(crate) async fn delete_some_account(
         &self,
-        id: i64,
+        id: SomeAccountId,
         employee_id: EmployeeId,
     ) -> std::result::Result<u64, Error> {
         sqlx::query!(
             "DELETE FROM skjera.some_account WHERE id=$1 AND employee=$2",
-            id,
+            id.0,
             employee_id.0,
         )
         .execute(&self.pool)

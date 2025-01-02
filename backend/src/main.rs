@@ -1,4 +1,3 @@
-mod employee;
 mod html;
 mod meta;
 mod model;
@@ -211,7 +210,7 @@ impl ServerImpl {
 
     fn api_some_account(s: &SomeAccount) -> skjera_api::models::SomeAccount {
         skjera_api::models::SomeAccount {
-            id: s.id,
+            id: s.id.into(),
             network: s.network.to_string(),
             nick: s.nick.to_string(),
             url: s.url.to_string(),

@@ -1,10 +1,5 @@
-pub use crate::employee::*;
+mod employee;
+mod some_account;
 
-#[derive(Debug, Clone, sqlx::FromRow)]
-pub struct SomeAccount {
-    pub id: i64,
-    pub employee: EmployeeId,
-    pub network: String,
-    pub nick: String,
-    pub url: String,
-}
+pub use crate::model::employee::*;
+pub use crate::model::some_account::*;

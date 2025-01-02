@@ -106,7 +106,7 @@ pub(crate) struct DeleteSomeAccountForm {
 pub async fn delete_some_account(
     State(app): State<ServerImpl>,
     _user: SessionUser,
-    Path(some_account_id): Path<i64>,
+    Path(some_account_id): Path<SomeAccountId>,
     Form(input): Form<DeleteSomeAccountForm>,
 ) -> Result<Redirect, AppError> {
     debug!("form: {:?}", input);

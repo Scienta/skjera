@@ -2,7 +2,7 @@
     ($type_name:ident) => {
         #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, sqlx::Type, serde::Serialize, serde::Deserialize)]
         #[sqlx(transparent)]
-        pub struct $type_name(i64);
+        pub struct $type_name(pub i64);
 
         impl From<i64> for $type_name {
             fn from(id: i64) -> Self {
