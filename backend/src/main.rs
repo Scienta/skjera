@@ -3,6 +3,7 @@ mod html;
 mod meta;
 mod model;
 mod skjera;
+mod macros;
 
 use crate::model::*;
 use anyhow::Context;

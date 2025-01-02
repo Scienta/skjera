@@ -1,31 +1,9 @@
+use crate::id_type;
 use crate::model::SomeAccount;
 use sqlx::types::time::Date;
 use sqlx::*;
-use std::fmt;
-use std::fmt::{Display, Formatter};
-use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, sqlx::Type, Serialize, Deserialize)]
-#[sqlx(transparent)]
-pub struct EmployeeId(i64);
-
-impl From<i64> for EmployeeId {
-    fn from(id: i64) -> Self {
-        EmployeeId(id)
-    }
-}
-
-impl From<EmployeeId> for i64 {
-    fn from(id: EmployeeId) -> Self {
-        id.0
-    }
-}
-
-impl Display for EmployeeId {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
+id_type!(EmployeeId);
 
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct Employee {
