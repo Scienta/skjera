@@ -1,0 +1,59 @@
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  batch:
+
+exporters:
+#  otlp:
+#    endpoint: otelcol:4317
+  loki:
+    endpoint: ${env:LOKI_URL}
+    auth:
+      authenticator: bearertokenauth/scw
+
+  otlp/tempo:
+    endpoint: ${env:TEMPO_URL}
+  debug:
+
+extensions:
+#  health_check:
+#  pprof:
+#  zpages:
+
+  bearertokenauth/scw:
+    scheme: "Bearer"
+    token: ${env:SCW_TOKEN}
+
+service:
+  extensions:
+#    - health_check
+#    - pprof
+#    - zpages
+    - bearertokenauth/scw
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors:
+#        - batch
+      exporters:
+        - otlp/tempo
+        - debug
+
+#    metrics:
+#      receivers: [otlp]
+#      processors: [batch]
+#      exporters: [otlp]
+
+    logs:
+      receivers: [otlp]
+      processors:
+#        - batch
+      exporters:
+        - loki
+        - debug

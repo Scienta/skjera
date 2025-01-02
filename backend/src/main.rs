@@ -23,19 +23,22 @@ use oauth2::{
     basic::BasicClient, AuthUrl, AuthorizationCode, ClientId, ClientSecret, RedirectUrl,
     TokenResponse, TokenUrl,
 };
+use opentelemetry::KeyValue;
+use opentelemetry_appender_tracing::layer;
+use opentelemetry_otlp::LogExporter;
+use opentelemetry_sdk::logs::LoggerProvider;
+use opentelemetry_sdk::resource::Resource;
 use reqwest::Client as ReqwestClient;
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgConnectOptions;
 use std::path::Path;
-use std::process;
 use std::process::exit;
 use tokio::net::TcpListener;
 use tokio::signal;
 use tower_http::{services::ServeDir, trace::TraceLayer};
 use tracing::{debug, info, span, warn, Level};
-use tracing_loki;
-use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
-use url::Url;
+use tracing_subscriber::prelude::*;
+use tracing_subscriber::EnvFilter;
 
 static COOKIE_NAME: &str = "SESSION";
 
@@ -45,9 +48,12 @@ async fn main() {
     let env = dotenv::dotenv();
     let is_local = env.is_ok();
 
-    if let Err(err) = configure_logging() {
+    let provider = configure_logging();
+    if let Err(err) = provider {
         println!("{}", err);
+        return;
     }
+    let provider = provider.unwrap();
 
     warn!("skjera starting");
 
@@ -94,85 +100,51 @@ async fn main() {
         store: MemoryStore::new(),
     };
 
-    start_server(server_impl, "0.0.0.0:8080").await
+    start_server(server_impl, "0.0.0.0:8080").await;
+
+    info!(name: "my-event-name", target: "my-system", event_id = 20, user_name = "otel", user_email = "otel@opentelemetry.io", message = "This is an example message");
+
+    let _ = provider.shutdown();
 }
 
-fn configure_logging() -> Result<(), anyhow::Error> {
-    let mut configure_console = true;
+fn configure_logging() -> Result<LoggerProvider, anyhow::Error> {
+    let resource = Resource::new(vec![KeyValue::new(
+        opentelemetry_semantic_conventions::resource::SERVICE_NAME,
+        env!("CARGO_CRATE_NAME"),
+    )]);
 
-    if let Ok(loki_url) = std::env::var("LOKI_URL") {
-        let loki_token = std::env::var("LOKI_TOKEN").ok();
+    let log_exporter = LogExporter::builder()
+        .with_tonic()
+        .build()?;
 
-        configure_loki(Url::parse(&loki_url)?, loki_token)?;
-        configure_console = false;
-    }
+    let logger_provider = LoggerProvider::builder()
+        .with_resource(resource)
+        .with_simple_exporter(log_exporter)
+        // .with_batch_exporter(exporter, runtime::Tokio)
+        .build();
 
-    if configure_console {
-        tracing_subscriber::registry()
-            .with(
-                tracing_subscriber::EnvFilter::try_from_default_env()
-                    .unwrap_or_else(|_| format!("{}=debug", env!("CARGO_CRATE_NAME")).into()),
-            )
-            .with(tracing_subscriber::fmt::layer())
-            .init();
-    };
+    let layer = layer::OpenTelemetryTracingBridge::new(&logger_provider);
 
-    Ok(())
-}
+    // Add a tracing filter to filter events from crates used by opentelemetry-otlp.
+    // The filter levels are set as follows:
+    // - Allow `info` level and above by default.
+    // - Restrict `hyper`, `tonic`, and `reqwest` to `error` level logs only.
+    // This ensures events generated from these crates within the OTLP Exporter are not looped back,
+    // thus preventing infinite event generation.
+    // Note: This will also drop events from these crates used outside the OTLP Exporter.
+    // For more details, see: https://github.com/open-telemetry/opentelemetry-rust/issues/761
+    let filter = EnvFilter::new("info")
+        .add_directive("hyper=error".parse()?)
+        .add_directive("tonic=error".parse()?)
+        .add_directive("reqwest=error".parse()?);
 
-fn configure_loki(loki_url: Url, loki_token: Option<String>) -> Result<(), anyhow::Error> {
-    let mut b = tracing_loki::builder()
-        .label("host", "mine")?
-        .extra_field("pid", format!("{}", process::id()))?;
-
-    if let Some(loki_token) = loki_token {
-        b = b.http_header("Authorization", format!("Bearer {}", loki_token))?
-        // b = b.http_header("X-Token", loki_token)?
-    }
-
-    let (layer, task) = b.build_url(loki_url.clone())?;
-
-    // We need to register our layer with `tracing`.
     tracing_subscriber::registry()
+        .with(filter)
         .with(layer)
-        .with(tracing_subscriber::fmt::layer())
         .init();
 
-    // The background task needs to be spawned so the logs actually get
-    // delivered.
-    tokio::spawn(task);
-
-    println!("Logging to Loki: {}", loki_url);
-
-    info!(
-        task = "tracing_setup",
-        result = "success",
-        "tracing successfully set up",
-    );
-
-    Ok(())
+    Ok(logger_provider)
 }
-// async fn run_migrations(pg_options: PgConnectOptions) -> Result<(), anyhow::Error> {
-//     let postgres_pool = PgPoolOptions::new()
-//         .max_connections(1)
-//         .after_connect(|conn, _meta| {
-//             Box::pin(async move {
-//                 conn.execute("SET search_path = 'public';").await?;
-//                 Ok(())
-//             })
-//         })
-//         .connect_with(pg_options)
-//         .await
-//         .map_err(|e| anyhow::anyhow!(e))?;
-//
-//     let migrator = Migrator::new(Path::new("./migrations"))
-//         .await
-//         .map_err(|e| anyhow::anyhow!(e))?;
-//     migrator
-//         .run(&postgres_pool)
-//         .await
-//         .map_err(|e| anyhow::anyhow!(e))
-// }
 
 #[derive(Clone, Debug)]
 struct ServerImpl {
