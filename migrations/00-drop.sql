@@ -7,5 +7,4 @@ FROM pg_stat_activity
 WHERE datname = 'skjera';
 
 DROP DATABASE IF EXISTS skjera;
-DROP ROLE IF EXISTS "skjera-backend";
-DROP ROLE IF EXISTS "skjera-owner";
+DROP ROLE IF EXISTS skjera;

@@ -5,9 +5,9 @@ else
   echo "sqlx is not installed; install with cargo install sqlx-cli"
 fi
 
+PATH=$(pwd)/bin:$PATH
+
 export PGHOST=localhost
 export PGPORT=5555
-export PGUSER=postgres
-export PGPASSWORD=postgres
 
-export DATABASE_URL="postgres://localhost/skjera"
+export DATABASE_URL="postgres://skjera:skjera@localhost/skjera"
