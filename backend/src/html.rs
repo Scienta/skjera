@@ -100,7 +100,7 @@ pub async fn post_me(
 
 #[derive(Deserialize, Debug)]
 pub(crate) struct DeleteSomeAccountForm {
-    employee_id: i64,
+    employee_id: EmployeeId,
 }
 
 pub async fn delete_some_account(
@@ -144,7 +144,7 @@ impl EmployeeTemplate {
 pub async fn employee(
     State(app): State<ServerImpl>,
     _user: SessionUser,
-    Path(employee_id): Path<i64>,
+    Path(employee_id): Path<EmployeeId>,
 ) -> Result<Html<String>, AppError> {
     let employee = app
         .employee_dao

@@ -1,13 +1,38 @@
 use crate::model::SomeAccount;
 use sqlx::types::time::Date;
 use sqlx::*;
+use std::fmt;
+use std::fmt::{Display, Formatter};
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, sqlx::Type, Serialize, Deserialize)]
+#[sqlx(transparent)]
+pub struct EmployeeId(i64);
+
+impl From<i64> for EmployeeId {
+    fn from(id: i64) -> Self {
+        EmployeeId(id)
+    }
+}
+
+impl From<EmployeeId> for i64 {
+    fn from(id: EmployeeId) -> Self {
+        id.0
+    }
+}
+
+impl Display for EmployeeId {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
 
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct Employee {
-    pub id: i64,
+    pub id: EmployeeId,
     pub email: String,
     pub name: String,
-    pub dob: Option<Date>, // pub some_accounts: Vec<SomeAccount>,
+    pub dob: Option<Date>,
 }
 
 #[derive(Debug, Clone)]
@@ -26,8 +51,8 @@ impl EmployeeDao {
             .await
     }
 
-    pub(crate) async fn employee_by_id(&self, id: i64) -> Result<Option<Employee>, Error> {
-        sqlx::query_as!(Employee, "SELECT * FROM skjera.employee WHERE id=$1", id)
+    pub(crate) async fn employee_by_id(&self, id: EmployeeId) -> Result<Option<Employee>, Error> {
+        sqlx::query_as!(Employee, "SELECT * FROM skjera.employee WHERE id=$1", id.0)
             .fetch_optional(&self.pool)
             .await
     }
@@ -48,7 +73,7 @@ impl EmployeeDao {
             "UPDATE skjera.employee SET dob=$1 WHERE id=$2
                 RETURNING *",
             employee.dob,
-            employee.id,
+            employee.id.0,
         )
         .fetch_one(&self.pool)
         .await
@@ -56,12 +81,12 @@ impl EmployeeDao {
 
     pub(crate) async fn some_accounts_by_employee(
         &self,
-        employee_id: i64,
+        employee_id: EmployeeId,
     ) -> Result<Vec<SomeAccount>, Error> {
         sqlx::query_as!(
             SomeAccount,
             "SELECT * FROM skjera.some_account WHERE employee=$1",
-            employee_id,
+            employee_id.0,
         )
         .fetch_all(&self.pool)
         .await
@@ -70,12 +95,12 @@ impl EmployeeDao {
     pub(crate) async fn delete_some_account(
         &self,
         id: i64,
-        employee_id: i64,
+        employee_id: EmployeeId,
     ) -> std::result::Result<u64, Error> {
         sqlx::query!(
             "DELETE FROM skjera.some_account WHERE id=$1 AND employee=$2",
             id,
-            employee_id,
+            employee_id.0,
         )
         .execute(&self.pool)
         .await

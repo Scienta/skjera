@@ -24,7 +24,7 @@ impl Skjera for ServerImpl {
                 e.to_string()
             })?;
 
-        let employee_ids: Vec<i64> = employees.iter().map(|x| x.id).collect();
+        let employee_ids: Vec<i64> = employees.iter().map(|x| x.id.into()).collect();
 
         let some_accounts = sqlx::query_as!(
             SomeAccount,
@@ -40,7 +40,7 @@ impl Skjera for ServerImpl {
             return Err(msg);
         }
 
-        let mut some_accounts_by_employee: HashMap<i64, Vec<SomeAccount>> = HashMap::new();
+        let mut some_accounts_by_employee: HashMap<EmployeeId, Vec<SomeAccount>> = HashMap::new();
         some_accounts.unwrap_or_default().iter().for_each(|a| {
             some_accounts_by_employee
                 .entry(a.employee)
