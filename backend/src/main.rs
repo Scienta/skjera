@@ -228,6 +228,7 @@ async fn start_server(server_impl: ServerImpl, addr: &str) {
         .route("/", get(html::hello_world))
         .route("/me", get(html::get_me))
         .route("/me", post(html::post_me))
+        .route("/me/some_account/:some_account_id/delete", post(html::delete_some_account))
         .route("/employee/:employee_id", get(html::employee))
         .route("/oauth/google", get(oauth_google))
         .fallback_service(assets)

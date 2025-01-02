@@ -36,6 +36,7 @@ struct MeTemplate<'a> {
     pub days: Vec<i32>,
     pub dob_month: usize,
     pub dob_day: usize,
+    pub some_accounts: Vec<SomeAccount>,
 }
 
 pub async fn get_me(
@@ -48,11 +49,14 @@ pub async fn get_me(
         .await?
         .context("error loading me")?;
 
+    let some_accounts = app.employee_dao.some_accounts_by_employee(me.id).await?;
+
     let template = MeTemplate {
         month_names: MONTH_NAMES.as_slice(),
         days: (1..31).collect::<Vec<i32>>(),
         dob_month: me.dob.map(|d| d.month() as usize).unwrap_or_default(),
         dob_day: me.dob.map(|d| d.day() as usize).unwrap_or_default(),
+        some_accounts,
     };
 
     Ok(Html(template.render()?))
@@ -92,6 +96,30 @@ pub async fn post_me(
     debug!("Updated Employee: {:?}", me);
 
     Ok(Redirect::to("/"))
+}
+
+#[derive(Deserialize, Debug)]
+pub(crate) struct DeleteSomeAccountForm {
+    employee_id: i64,
+}
+
+pub async fn delete_some_account(
+    State(app): State<ServerImpl>,
+    _user: SessionUser,
+    Path(some_account_id): Path<i64>,
+    Form(input): Form<DeleteSomeAccountForm>,
+) -> Result<Redirect, AppError> {
+    debug!("form: {:?}", input);
+
+    // TODO: implement SessionUser.employee_id
+    // if user.employee_id != input.employee_id => panic
+
+    let _ = app
+        .employee_dao
+        .delete_some_account(some_account_id, input.employee_id)
+        .await?;
+
+    Ok(Redirect::to("/me"))
 }
 
 #[derive(Template)]

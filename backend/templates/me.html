@@ -43,5 +43,34 @@
 </tr>
 </table>
 </form>
+
+<h2>SoMe Accounts</h2>
+<table>
+<thead>
+<tr>
+    <th>Network</th>
+    <th>Nick</th>
+    <th>URL</th>
+    <th></th>
+</tr>
+</thead>
+<tbody>
+{% for a in some_accounts %}
+<tr>
+    <td>{{ a.network }}</td>
+    <td>{{ a.nick }}</td>
+    <td>
+        <a href="{{ a.url }}" target="_blank">{{ a.url }}</a>
+    </td>
+    <td>
+        <form action="/me/some_account/{{ a.id }}/delete" method="POST">
+            <input type="hidden" name="employee_id" value="{{ a.employee }}">
+            <button type="submit">Remove</button>
+        </form>
+    </td>
+</tr>
+{% endfor %}
+</tbody>
+</table>
 </body>
 </html>
