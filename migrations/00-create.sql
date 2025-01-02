@@ -10,4 +10,4 @@ CREATE ROLE "skjera-owner" WITH LOGIN ENCRYPTED PASSWORD 'skjera-owner';
 GRANT ALL ON DATABASE skjera TO "skjera-owner";
 
 GRANT ALL ON SCHEMA public TO "skjera-owner";
-GRANT USAGE ON SCHEMA public TO "skjera-backend";
+GRANT ALL ON SCHEMA public TO "skjera-backend";
