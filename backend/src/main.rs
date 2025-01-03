@@ -18,6 +18,7 @@ use axum::response::{IntoResponse, Redirect, Response};
 use axum::RequestPartsExt;
 use axum_extra::typed_header::TypedHeaderRejectionReason;
 use axum_extra::TypedHeader;
+use headers;
 use oauth2::basic::BasicClient;
 use opentelemetry::trace::TracerProvider as _;
 use opentelemetry::{global, KeyValue};

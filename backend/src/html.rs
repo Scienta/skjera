@@ -9,7 +9,6 @@ use once_cell::sync::Lazy;
 use serde::Deserialize;
 use time::{format_description, Date, Month};
 use tracing::{debug, info, span, Level};
-use url;
 use url::Url;
 
 static MONTH_NAMES: Lazy<Vec<String>> = Lazy::new(|| {
