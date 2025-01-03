@@ -3,28 +3,20 @@ mod macros;
 mod meta;
 mod model;
 mod skjera;
+mod web;
+mod oauth;
 
 use crate::model::*;
-use anyhow::Context;
-use async_session::{MemoryStore, Session, SessionStore};
+use async_session::{MemoryStore, SessionStore};
 use async_trait::async_trait;
 use axum::extract::{FromRef, FromRequestParts};
-use axum::extract::{Query, State};
-use axum::http::header::SET_COOKIE;
 use axum::http::request::Parts;
-use axum::http::{header, HeaderMap, StatusCode};
+use axum::http::{header, StatusCode};
 use axum::response::{IntoResponse, Redirect, Response};
-use axum::routing::{get, post};
-use axum::{RequestPartsExt, Router};
+use axum::{RequestPartsExt};
 use axum_extra::typed_header::TypedHeaderRejectionReason;
 use axum_extra::TypedHeader;
-use oauth2::reqwest::async_http_client;
-use oauth2::{
-    basic::BasicClient, AuthUrl, AuthorizationCode, ClientId, ClientSecret, RedirectUrl,
-    TokenResponse, TokenUrl,
-};
-use opentelemetry::global::tracer;
-use opentelemetry::trace::Tracer;
+use oauth2::basic::BasicClient;
 use opentelemetry::{global, KeyValue};
 use opentelemetry_appender_tracing::layer;
 use opentelemetry_otlp::{LogExporter, SpanExporter};
@@ -34,16 +26,15 @@ use opentelemetry_sdk::{runtime, trace as sdk_trace, Resource};
 use reqwest::Client as ReqwestClient;
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgConnectOptions;
-use std::path::Path;
 use std::process::exit;
 use tokio::net::TcpListener;
 use tokio::signal;
-use tower_http::{services::ServeDir, trace::TraceLayer};
-use tracing::{debug, info, span, warn, Level};
+use tower_http::trace::TraceLayer;
+use tracing::{debug, info, warn};
 use tracing_subscriber::prelude::*;
 use tracing_subscriber::EnvFilter;
 
-static COOKIE_NAME: &str = "SESSION";
+pub(crate) static COOKIE_NAME: &str = "SESSION";
 
 #[tokio::main]
 async fn main() {
@@ -90,7 +81,7 @@ async fn main() {
             exit(1)
         }
     };
-    let basic_client = build_oauth_client(
+    let basic_client = oauth::build_oauth_client(
         cfg.redirect_url.clone(),
         cfg.client_id.clone(),
         cfg.client_secret.clone(),
@@ -178,12 +169,6 @@ struct ServerImpl {
     pub employee_dao: EmployeeDao,
 }
 
-impl FromRef<ServerImpl> for MemoryStore {
-    fn from_ref(state: &ServerImpl) -> Self {
-        state.store.clone()
-    }
-}
-
 impl ServerImpl {
     fn api_employee(
         e: &Employee,
@@ -211,24 +196,14 @@ impl ServerImpl {
     }
 }
 
+impl FromRef<ServerImpl> for MemoryStore {
+    fn from_ref(state: &ServerImpl) -> Self {
+        state.store.clone()
+    }
+}
+
 async fn start_server(server_impl: ServerImpl, addr: &str) {
-    let ap = &server_impl.assets_path.clone();
-    let assets_path = Path::new(ap);
-
-    let assets = Router::new().nest_service("/assets", ServeDir::new(assets_path));
-
-    let app = Router::new()
-        .route("/", get(html::hello_world))
-        .route("/me", get(html::get_me))
-        .route("/me", post(html::post_me))
-        .route(
-            "/me/some_account/:some_account_id/delete",
-            post(html::delete_some_account),
-        )
-        .route("/employee/:employee_id", get(html::employee))
-        .route("/oauth/google", get(oauth_google))
-        .fallback_service(assets)
-        .with_state(server_impl);
+    let app = web::create_router(server_impl);
 
     let app = app.layer(TraceLayer::new_for_http());
 
@@ -291,12 +266,6 @@ impl Config {
     }
 }
 
-#[derive(Debug, Deserialize)]
-#[allow(dead_code)]
-struct AuthRequest {
-    code: String,
-}
-
 #[derive(Debug)]
 struct AppError(anyhow::Error);
 
@@ -317,129 +286,6 @@ where
     fn from(err: E) -> Self {
         Self(err.into())
     }
-}
-
-async fn oauth_google(
-    Query(query): Query<AuthRequest>,
-    State(app): State<ServerImpl>,
-) -> Result<impl IntoResponse, AppError> {
-    let _method = span!(Level::INFO, "oauth_google");
-
-    let code = query.code;
-    debug!("code: {}", code);
-
-    let token = {
-        let _span = span!(Level::DEBUG, "exchange_code");
-        app.basic_client
-            .exchange_code(AuthorizationCode::new(code))
-            .request_async(async_http_client)
-            .await?
-    };
-
-    debug!("token: {:?}", token.scopes());
-
-    let profile = {
-        let _span = span!(Level::DEBUG, "get_token");
-        app.ctx
-            .get("https://openidconnect.googleapis.com/v1/userinfo")
-            .bearer_auth(token.access_token().secret().to_owned())
-            .send()
-            .await?
-    };
-
-    // let profile_response = profile.text().await.unwrap();
-    // println!("UserProfile: {:?}", profile_response);
-    // let user_profile = serde_json::from_str::<UserProfile>(&profile_response).unwrap();
-
-    let user_profile = profile.json::<GoogleUserProfile>().await?;
-    info!("UserProfile: {:?}", user_profile);
-
-    let employee = load_or_create_employee(&app, &user_profile).await?;
-
-    let session_user = SessionUser {
-        employee: employee.id,
-        email: user_profile.email,
-        name: user_profile.name,
-    };
-
-    // Create a new session filled with user data
-    let mut session = Session::new();
-    session
-        .insert("user", &session_user)
-        .context("failed in inserting serialized value into session")?;
-
-    // Store session and get corresponding cookie
-    let cookie = app
-        .store
-        .store_session(session)
-        .await
-        .context("failed to store session")?
-        .context("unexpected error retrieving cookie value")?;
-
-    // Build the cookie
-    let cookie = format!("{COOKIE_NAME}={cookie}; SameSite=Lax; HttpOnly; Secure; Path=/");
-
-    // Set cookie
-    let mut headers = HeaderMap::new();
-    headers.insert(
-        SET_COOKIE,
-        cookie.parse().context("failed to parse cookie")?,
-    );
-
-    Ok((headers, Redirect::to("/")))
-}
-
-async fn load_or_create_employee(
-    app: &ServerImpl,
-    user_profile: &GoogleUserProfile,
-) -> Result<Employee, anyhow::Error> {
-    let employee = app
-        .employee_dao
-        .employee_by_email(user_profile.email.clone())
-        .await?;
-
-    if let Some(e) = employee {
-        info!("Loaded employee user: {:?}", e);
-        return Ok(e);
-    }
-
-    let employee = app
-        .employee_dao
-        .insert_employee(user_profile.email.clone(), user_profile.name.clone())
-        .await?;
-
-    info!("Created new employee: {:?}", employee);
-
-    Ok(employee)
-}
-
-fn build_oauth_client(
-    redirect_url: String,
-    client_id: String,
-    client_secret: String,
-) -> BasicClient {
-    // If you're not using Google OAuth, you can use whatever the relevant auth/token URL is for your given OAuth service
-    let auth_url = AuthUrl::new("https://accounts.google.com/o/oauth2/v2/auth".to_string())
-        .expect("Invalid authorization endpoint URL");
-    let token_url = TokenUrl::new("https://www.googleapis.com/oauth2/v3/token".to_string())
-        .expect("Invalid token endpoint URL");
-
-    BasicClient::new(
-        ClientId::new(client_id),
-        Some(ClientSecret::new(client_secret)),
-        auth_url,
-        Some(token_url),
-    )
-    .set_redirect_uri(RedirectUrl::new(redirect_url).unwrap())
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-pub struct GoogleUserProfile {
-    sub: String,
-    email: String,
-    name: String,
-    // given_name: Option<String>,
-    // family_name: Option<String>,
 }
 
 pub struct AuthRedirect;
