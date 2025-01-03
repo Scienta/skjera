@@ -5,7 +5,7 @@
 resolver = "2"
 members = [
     "backend",
-    "skjera_api",
+#    "skjera_api",
     #    "frontend",
 
     #Internal

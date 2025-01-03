@@ -1,7 +1,6 @@
 use crate::model::Employee;
 use crate::{AppError, ServerImpl, SessionUser, COOKIE_NAME};
 use anyhow::Context;
-use askama_axum::IntoResponse;
 use async_session::{Session, SessionStore};
 use axum::extract::{Query, State};
 use axum::http::header::SET_COOKIE;
@@ -22,7 +21,7 @@ pub(crate) struct AuthRequest {
 pub(crate) async fn oauth_google(
     Query(query): Query<AuthRequest>,
     State(app): State<ServerImpl>,
-) -> Result<impl IntoResponse, AppError> {
+) -> Result<(HeaderMap, Redirect), AppError> {
     let _method = span!(Level::INFO, "oauth_google");
 
     let code = query.code;

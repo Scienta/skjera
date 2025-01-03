@@ -9,8 +9,8 @@ askama = { version = "0.12.1", features = ["with-axum"] }
 askama_axum = "0.4.0"
 async-session = "3.0.0"
 async-trait = "0.1.83"
-axum = "0.7"
-axum-extra = { version = "0.9", features = ["cookie", "multipart", "typed-header"] }
+axum = { version = "0.8.1" , features = ["macros"]}
+axum-extra = { version = "0.10.0", features = ["cookie", "multipart", "typed-header"] }
 dotenv = "0.15.0"
 headers = "0.4.0"
 oauth2 = "4.4.2"
@@ -23,10 +23,10 @@ opentelemetry-semantic-conventions = { version = "0.27.0" }
 opentelemetry_sdk = { version = "0.27.1", features = ["tracing", "logs", "rt-tokio"] }
 reqwest = { version = "0.12.9", features = ["json"] }
 serde = { version = "1.0.216", features = ["derive"] }
-skjera_api = { version = "1.0.0", path = "../skjera_api" }
+#skjera_api = { version = "1.0.0", path = "../skjera_api" }
 sqlx = { version = "0.8.2", features = ["runtime-tokio-native-tls", "sqlite", "postgres", "time", "uuid"] }
 time = "0.3.37"
-tokio = { version = "1.42.0", features = ["rt", "rt-multi-thread", "macros"] }
+tokio = { version = "1.42.0", features = ["rt", "rt-multi-thread", "macros", "signal"] }
 tower-http = { version = "0.6.2", features = ["fs", "trace"] }
 tracing = { version = "0.1.41", features = ["std", "log"] }
 tracing-subscriber = { version = "0.3.19", features = ["env-filter", "registry", "fmt"] }

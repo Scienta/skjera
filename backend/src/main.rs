@@ -1,19 +1,21 @@
 mod html;
 mod macros;
+#[cfg(any())]
 mod meta;
 mod model;
+mod oauth;
+#[cfg(any())]
 mod skjera;
 mod web;
-mod oauth;
 
 use crate::model::*;
+use anyhow::anyhow;
 use async_session::{MemoryStore, SessionStore};
-use async_trait::async_trait;
-use axum::extract::{FromRef, FromRequestParts};
+use axum::extract::{FromRef, FromRequestParts, OptionalFromRequestParts};
 use axum::http::request::Parts;
 use axum::http::{header, StatusCode};
 use axum::response::{IntoResponse, Redirect, Response};
-use axum::{RequestPartsExt};
+use axum::RequestPartsExt;
 use axum_extra::typed_header::TypedHeaderRejectionReason;
 use axum_extra::TypedHeader;
 use oauth2::basic::BasicClient;
@@ -170,6 +172,7 @@ struct ServerImpl {
 }
 
 impl ServerImpl {
+    #[cfg(any())]
     fn api_employee(
         e: &Employee,
         some_accounts: &Vec<SomeAccount>,
@@ -186,6 +189,7 @@ impl ServerImpl {
         }
     }
 
+    #[cfg(any())]
     fn api_some_account(s: &SomeAccount) -> skjera_api::models::SomeAccount {
         skjera_api::models::SomeAccount {
             id: s.id.into(),
@@ -303,38 +307,78 @@ pub struct SessionUser {
     name: String,
 }
 
-#[async_trait]
+impl<S> OptionalFromRequestParts<S> for SessionUser
+where
+    MemoryStore: FromRef<S>,
+    S: Send + Sync,
+{
+    type Rejection = ();
+
+    async fn from_request_parts(
+        parts: &mut Parts,
+        state: &S,
+    ) -> Result<Option<Self>, Self::Rejection> {
+        let store = MemoryStore::from_ref(state);
+
+        // This is quite a duplication of `FromRequestParts for SessionUser`, not sure if this can
+        // depend on the other and just drop the Err or what is the best way. No time to look into
+        // it now.
+        let x: Result<Self, anyhow::Error> = async move {
+            let cookies = parts.extract::<TypedHeader<headers::Cookie>>().await?;
+
+            let cookie = cookies
+                .get(COOKIE_NAME)
+                .ok_or(anyhow!("cookie not found"))?
+                .to_string();
+
+            let session = store
+                .load_session(cookie)
+                .await?
+                .ok_or(anyhow!("session not found"))?;
+
+            session
+                .get::<SessionUser>("user")
+                .ok_or(anyhow!("no user in session"))
+        }
+        .await;
+
+        Ok(x.ok())
+    }
+}
+
 impl<S> FromRequestParts<S> for SessionUser
 where
     MemoryStore: FromRef<S>,
     S: Send + Sync,
 {
-    // If anything goes wrong or no session is found, redirect to the auth page
     type Rejection = AuthRedirect;
 
     async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
         let store = MemoryStore::from_ref(state);
 
-        let cookies = parts
-            .extract::<TypedHeader<headers::Cookie>>()
-            .await
-            .map_err(|e| match *e.name() {
-                header::COOKIE => match e.reason() {
-                    TypedHeaderRejectionReason::Missing => AuthRedirect,
-                    _ => panic!("unexpected error getting Cookie header(s): {e}"),
-                },
-                _ => panic!("unexpected error getting cookies: {e}"),
-            })?;
-        let session_cookie = cookies.get(COOKIE_NAME).ok_or(AuthRedirect)?;
+        async move {
+            let cookies = parts
+                .extract::<TypedHeader<headers::Cookie>>()
+                .await
+                .map_err(|e| match *e.name() {
+                    header::COOKIE => match e.reason() {
+                        TypedHeaderRejectionReason::Missing => AuthRedirect,
+                        _ => panic!("unexpected error getting Cookie header(s): {e}"),
+                    },
+                    _ => panic!("unexpected error getting cookies: {e}"),
+                })?;
+            let session_cookie = cookies.get(COOKIE_NAME).ok_or(AuthRedirect)?;
 
-        let session = store
-            .load_session(session_cookie.to_string())
-            .await
-            .unwrap()
-            .ok_or(AuthRedirect)?;
+            let session = store
+                .load_session(session_cookie.to_string())
+                .await
+                .unwrap()
+                .ok_or(AuthRedirect)?;
 
-        let user = session.get::<SessionUser>("user").ok_or(AuthRedirect)?;
+            let user = session.get::<SessionUser>("user").ok_or(AuthRedirect)?;
 
-        Ok(user)
+            Ok(user)
+        }
+        .await
     }
 }

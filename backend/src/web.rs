@@ -20,10 +20,10 @@ pub(crate) fn create_router(app: ServerImpl) -> Router {
             post(html::add_some_account),
         )
         .route(
-            "/me/some_account/:some_account_id/delete",
+            "/me/some_account/{some_account_id}/delete",
             post(html::delete_some_account),
         )
-        .route("/employee/:employee_id", get(html::employee))
+        .route("/employee/{employee_id}", get(html::employee))
         .route("/oauth/google", get(oauth_google))
         .fallback_service(assets)
         .with_state(app)
