@@ -7,7 +7,7 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  DATABASE_URL: postgres://skjera-owner:skjera-owner@localhost/skjera
+  DATABASE_URL: postgres://skjera:skjera@localhost/skjera
   DEBIAN_FRONTEND: noninteractive
 
 jobs:
