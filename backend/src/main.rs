@@ -23,16 +23,19 @@ use oauth2::{
     basic::BasicClient, AuthUrl, AuthorizationCode, ClientId, ClientSecret, RedirectUrl,
     TokenResponse, TokenUrl,
 };
-use opentelemetry::KeyValue;
+use opentelemetry::{global, KeyValue};
 use opentelemetry_appender_tracing::layer;
-use opentelemetry_otlp::LogExporter;
+use opentelemetry_otlp::{LogExporter, SpanExporter};
 use opentelemetry_sdk::logs::LoggerProvider;
-use opentelemetry_sdk::resource::Resource;
+use opentelemetry_sdk::trace::TracerProvider;
+use opentelemetry_sdk::{runtime, trace as sdk_trace, Resource};
 use reqwest::Client as ReqwestClient;
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgConnectOptions;
 use std::path::Path;
 use std::process::exit;
+use opentelemetry::global::tracer;
+use opentelemetry::trace::Tracer;
 use tokio::net::TcpListener;
 use tokio::signal;
 use tower_http::{services::ServeDir, trace::TraceLayer};
@@ -48,12 +51,12 @@ async fn main() {
     let env = dotenv::dotenv();
     let is_local = env.is_ok();
 
-    let provider = configure_logging();
-    if let Err(err) = provider {
+    let providers = configure_logging();
+    if let Err(err) = providers {
         println!("{}", err);
         return;
     }
-    let provider = provider.unwrap();
+    let providers = providers.unwrap();
 
     warn!("skjera starting");
 
@@ -100,22 +103,34 @@ async fn main() {
         store: MemoryStore::new(),
     };
 
+    let tracer = tracer("my_tracer");
+
+    tracer.in_span("doing_work", |_cx| {
+        info!(name: "my-event-name", target: "my-system", event_id = 20, user_name = "otel", user_email = "otel@opentelemetry.io", message = "This is an example message");
+    });
+
     start_server(server_impl, "0.0.0.0:8080").await;
 
-    info!(name: "my-event-name", target: "my-system", event_id = 20, user_name = "otel", user_email = "otel@opentelemetry.io", message = "This is an example message");
-
-    let _ = provider.shutdown();
+    providers.0.shutdown().unwrap();
+    providers.1.shutdown().unwrap();
 }
 
-fn configure_logging() -> Result<LoggerProvider, anyhow::Error> {
+fn configure_logging() -> Result<(TracerProvider, LoggerProvider), anyhow::Error> {
     let resource = Resource::new(vec![KeyValue::new(
         opentelemetry_semantic_conventions::resource::SERVICE_NAME,
         env!("CARGO_CRATE_NAME"),
     )]);
 
-    let log_exporter = LogExporter::builder()
-        .with_tonic()
-        .build()?;
+    let span_exporter = SpanExporter::builder().with_tonic().build()?;
+
+    let tracer_provider = sdk_trace::TracerProvider::builder()
+        .with_resource(resource.clone())
+        .with_batch_exporter(span_exporter, runtime::Tokio)
+        .build();
+
+    global::set_tracer_provider(tracer_provider.clone());
+
+    let log_exporter = LogExporter::builder().with_tonic().build()?;
 
     let logger_provider = LoggerProvider::builder()
         .with_resource(resource)
@@ -148,7 +163,7 @@ fn configure_logging() -> Result<LoggerProvider, anyhow::Error> {
         .with(tracing_subscriber::fmt::layer())
         .init();
 
-    Ok(logger_provider)
+    Ok((tracer_provider, logger_provider))
 }
 
 #[derive(Clone, Debug)]

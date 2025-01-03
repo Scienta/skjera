@@ -17,8 +17,13 @@ exporters:
     auth:
       authenticator: bearertokenauth/scw
 
-  otlp/tempo:
+  otlphttp/tempo:
     endpoint: ${env:TEMPO_URL}
+    auth:
+      authenticator: bearertokenauth/scw
+    encoding: json
+    compression: none
+
   debug:
 
 extensions:
@@ -42,7 +47,7 @@ service:
       processors:
 #        - batch
       exporters:
-        - otlp/tempo
+        - otlphttp/tempo
         - debug
 
 #    metrics:
