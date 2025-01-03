@@ -8,7 +8,7 @@ use axum::Form;
 use once_cell::sync::Lazy;
 use serde::Deserialize;
 use time::{format_description, Date, Month};
-use tracing::debug;
+use tracing::{debug, info};
 use url;
 use url::Url;
 
@@ -98,25 +98,18 @@ pub async fn post_me(
     Ok(Redirect::to("/"))
 }
 
-#[derive(Deserialize, Debug)]
-pub(crate) struct DeleteSomeAccountForm {
-    employee_id: EmployeeId,
-}
-
 pub async fn delete_some_account(
     State(app): State<ServerImpl>,
-    _user: SessionUser,
+    user: SessionUser,
     Path(some_account_id): Path<SomeAccountId>,
-    Form(input): Form<DeleteSomeAccountForm>,
 ) -> Result<Redirect, AppError> {
-    debug!("form: {:?}", input);
+    info!(
+        "some_account_id" = some_account_id.0,
+        "Deleting some account"
+    );
 
-    // TODO: implement SessionUser.employee_id
-    // if user.employee_id != input.employee_id => panic
-
-    let _ = app
-        .employee_dao
-        .delete_some_account(some_account_id, input.employee_id)
+    app.employee_dao
+        .delete_some_account(some_account_id, user.employee)
         .await?;
 
     Ok(Redirect::to("/me"))
