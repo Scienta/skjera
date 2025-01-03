@@ -56,4 +56,29 @@ impl Skjera for ServerImpl {
 
         Ok(ListEmployeesResponse::Status200_ListOfEmployees(employees))
     }
+
+    fn api_employee(
+        e: &Employee,
+        some_accounts: &Vec<SomeAccount>,
+    ) -> skjera_api::models::Employee {
+        skjera_api::models::Employee {
+            // id: e.id,
+            name: e.name.clone(),
+            email: e.email.clone(),
+            nick: None,
+            some_accounts: some_accounts
+                .iter()
+                .map(ServerImpl::api_some_account)
+                .collect(),
+        }
+    }
+
+    fn api_some_account(s: &SomeAccount) -> skjera_api::models::SomeAccount {
+        skjera_api::models::SomeAccount {
+            id: s.id.into(),
+            network: s.network.to_string(),
+            nick: s.nick.clone().unwrap_or_default(),
+            url: s.url.clone().unwrap_or_default(),
+        }
+    }
 }

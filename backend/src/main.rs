@@ -182,35 +182,6 @@ struct ServerImpl {
     pub employee_dao: EmployeeDao,
 }
 
-impl ServerImpl {
-    #[cfg(any())]
-    fn api_employee(
-        e: &Employee,
-        some_accounts: &Vec<SomeAccount>,
-    ) -> skjera_api::models::Employee {
-        skjera_api::models::Employee {
-            // id: e.id,
-            name: e.name.clone(),
-            email: e.email.clone(),
-            nick: None,
-            some_accounts: some_accounts
-                .iter()
-                .map(ServerImpl::api_some_account)
-                .collect(),
-        }
-    }
-
-    #[cfg(any())]
-    fn api_some_account(s: &SomeAccount) -> skjera_api::models::SomeAccount {
-        skjera_api::models::SomeAccount {
-            id: s.id.into(),
-            network: s.network.to_string(),
-            nick: s.nick.clone().unwrap_or_default(),
-            url: s.url.clone().unwrap_or_default(),
-        }
-    }
-}
-
 impl FromRef<ServerImpl> for MemoryStore {
     fn from_ref(state: &ServerImpl) -> Self {
         state.store.clone()
