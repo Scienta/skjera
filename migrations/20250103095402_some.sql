@@ -1,0 +1,3 @@
+ALTER TABLE skjera.some_account
+    ALTER COLUMN url DROP NOT NULL,
+    ALTER COLUMN nick DROP NOT NULL;

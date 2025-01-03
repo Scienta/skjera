@@ -190,8 +190,8 @@ impl ServerImpl {
         skjera_api::models::SomeAccount {
             id: s.id.into(),
             network: s.network.to_string(),
-            nick: s.nick.to_string(),
-            url: s.url.to_string(),
+            nick: s.nick.clone().unwrap_or_default(),
+            url: s.url.clone().unwrap_or_default(),
         }
     }
 }

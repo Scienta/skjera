@@ -16,6 +16,10 @@ pub(crate) fn create_router(app: ServerImpl) -> Router {
         .route("/me", get(html::get_me))
         .route("/me", post(html::post_me))
         .route(
+            "/me/some_account/add",
+            post(html::add_some_account),
+        )
+        .route(
             "/me/some_account/:some_account_id/delete",
             post(html::delete_some_account),
         )

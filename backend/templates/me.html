@@ -3,6 +3,11 @@
 <head>
     <link rel="icon" href="data:;base64,," />
     <link rel="stylesheet" href="/assets/reset-zone.regular.css">
+    <style>
+        tr th {
+            vertical-align: top;
+        }
+    </style>
 </head>
 <body>
 <h1>Edit profile</h1>
@@ -58,9 +63,11 @@
 {% for a in some_accounts %}
 <tr>
     <td>{{ a.network }}</td>
-    <td>{{ a.nick }}</td>
+    <td>{% if let Some(nick) = a.nick %}{{ nick }}{% endif %}</td>
     <td>
-        <a href="{{ a.url }}" target="_blank">{{ a.url }}</a>
+        {% if let Some(url) = a.url -%}
+        <a href="{{ url }}" target="_blank">{{ url }}</a>
+        {%- endif %}
     </td>
     <td>
         <form action="/me/some_account/{{ a.id }}/delete" method="POST">
@@ -72,5 +79,51 @@
 {% endfor %}
 </tbody>
 </table>
+
+<h3>Add SoMe Account</h3>
+<form action="/me/some_account/add" method="POST">
+<table>
+    <tr>
+        <th>
+            <label for="bluesky">Bluesky @handle</label>
+        </th>
+        <td>
+            <input type="text" name="bluesky" id="bluesky" placeholder="@bluesky">
+        </td>
+        <td>
+            <input type="submit" name="button_bluesky" value="Add Bluesky account">
+        </td>
+    </tr>
+    <tr>
+        <th>
+            <label for="linkedin">Linked-in profile URL</label>
+        </th>
+        <td>
+            <input type="text" name="linkedin" id="linkedin" placeholder="https://www.linkedin.com/in/my-profile">
+        </td>
+        <td>
+            <input type="submit" name="button_linkedin" value="Add Linked-in account">
+        </td>
+    </tr>
+    <tr>
+        <td></td>
+        <td colspan="2">
+            Click on your own name on the Linked-in home page to find your own URL.
+        </td>
+    </tr>
+    <tr>
+        <th>
+            <label for="x">X @handle</label>
+        </th>
+        <td>
+            <input type="text" name="x" id="x" placeholder="@handle">
+        </td>
+        <td>
+            <input type="submit" name="button_x" value="Add X account">
+        </td>
+    </tr>
+</table>
+</form>
+
 </body>
 </html>

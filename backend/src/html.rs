@@ -8,7 +8,7 @@ use axum::Form;
 use once_cell::sync::Lazy;
 use serde::Deserialize;
 use time::{format_description, Date, Month};
-use tracing::{debug, info};
+use tracing::{debug, info, span, Level};
 use url;
 use url::Url;
 
@@ -111,6 +111,53 @@ pub async fn delete_some_account(
     app.employee_dao
         .delete_some_account(some_account_id, user.employee)
         .await?;
+
+    Ok(Redirect::to("/me"))
+}
+
+#[derive(Deserialize, Debug)]
+pub(crate) struct AddSomeAccountForm {
+    bluesky: String,
+    button_bluesky: Option<String>,
+
+    linkedin: String,
+    button_linkedin: Option<String>,
+
+    x: String,
+    button_x: Option<String>,
+}
+
+pub async fn add_some_account(
+    State(app): State<ServerImpl>,
+    user: SessionUser,
+    Form(input): Form<AddSomeAccountForm>,
+) -> Result<Redirect, AppError> {
+    let _span = span!(Level::INFO, "add_some_account");
+
+    info!("input" = ?input, "Adding some account");
+
+    let mut network: Option<String> = None;
+    let mut nick: Option<String> = None;
+    let mut url: Option<String> = None;
+
+    if input.button_bluesky.is_some() {
+        network = Some("bluesky".to_string());
+        nick = Some(input.bluesky.clone());
+        url = Some(format!("https://bsky.app/profile/{}", input.bluesky.clone()).to_string());
+    } else if input.button_linkedin.is_some() {
+        network = Some("linkedin".to_string());
+        url = Some(input.linkedin);
+    } else if input.button_x.is_some() && input.x.trim().len() > 0 {
+        network = Some("x".to_string());
+        nick = Some(input.x.clone());
+        url = Some(format!("https://x.com/{}", input.x.clone()).to_string());
+    }
+
+    if let Some(network) = network {
+        app.employee_dao
+            .add_some_account(user.employee, network.to_string(), nick, url)
+            .await?;
+    }
 
     Ok(Redirect::to("/me"))
 }

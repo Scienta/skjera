@@ -8,6 +8,6 @@ pub struct SomeAccount {
     pub id: SomeAccountId,
     pub employee: EmployeeId,
     pub network: String,
-    pub nick: String,
-    pub url: String,
+    pub nick: Option<String>,
+    pub url: Option<String>,
 }
