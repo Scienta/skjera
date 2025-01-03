@@ -168,6 +168,11 @@ fn configure_logging() -> Result<(TracerProvider, LoggerProvider), anyhow::Error
 
 #[derive(Clone, Debug)]
 struct ServerImpl {
+    /// TODO: Figure out how to best handle the passing of the pool. Right now it is used inside
+    /// EmployeeDao, but not anywhere else. I'm not sure if cloning the Pool is ok or not.
+    /// Perhaps the EmployeeDao shouldn't use the pool at all and everything should just use this
+    /// single reference.
+    #[allow(dead_code)]
     pool: sqlx::PgPool,
     assets_path: String,
     ctx: ReqwestClient,
