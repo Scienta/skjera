@@ -28,6 +28,9 @@
             <a href="/employee/{{ employee.id }}">{{ employee.name }}</a>
         </td>
         <td>
+            <a href="mailto:{{ employee.email }}">{{ employee.email }}</a>
+        </td>
+        <td>
             {% if let Some(dob) = employee.dob %}
             {{ dob.day()|fmt("{:?}") }}{{ dob.month()|fmt("{:?}") }}
             {% endif %}
