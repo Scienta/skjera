@@ -23,6 +23,8 @@ use oauth2::{
     basic::BasicClient, AuthUrl, AuthorizationCode, ClientId, ClientSecret, RedirectUrl,
     TokenResponse, TokenUrl,
 };
+use opentelemetry::global::tracer;
+use opentelemetry::trace::Tracer;
 use opentelemetry::{global, KeyValue};
 use opentelemetry_appender_tracing::layer;
 use opentelemetry_otlp::{LogExporter, SpanExporter};
@@ -34,8 +36,6 @@ use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgConnectOptions;
 use std::path::Path;
 use std::process::exit;
-use opentelemetry::global::tracer;
-use opentelemetry::trace::Tracer;
 use tokio::net::TcpListener;
 use tokio::signal;
 use tower_http::{services::ServeDir, trace::TraceLayer};
@@ -73,6 +73,8 @@ async fn main() {
 
     info!("DATABASE_URL: {:?}", &options);
 
+    debug!("DEBUG");
+
     // match run_migrations(options.clone()).await {
     //     Ok(_) => info!("migrations applies"),
     //     Err(err) => warn!("could not apply migrations: {}", err),
@@ -103,11 +105,11 @@ async fn main() {
         store: MemoryStore::new(),
     };
 
-    let tracer = tracer("my_tracer");
-
-    tracer.in_span("doing_work", |_cx| {
-        info!(name: "my-event-name", target: "my-system", event_id = 20, user_name = "otel", user_email = "otel@opentelemetry.io", message = "This is an example message");
-    });
+    // let tracer = tracer("my_tracer");
+    //
+    // tracer.in_span("doing_work", |_cx| {
+    //     info!(name: "my-event-name", target: "my-system", event_id = 20, user_name = "otel", user_email = "otel@opentelemetry.io", message = "This is an example message");
+    // });
 
     start_server(server_impl, "0.0.0.0:8080").await;
 
@@ -125,6 +127,7 @@ fn configure_logging() -> Result<(TracerProvider, LoggerProvider), anyhow::Error
 
     let tracer_provider = sdk_trace::TracerProvider::builder()
         .with_resource(resource.clone())
+        // .with_simple_exporter(span_exporter)
         .with_batch_exporter(span_exporter, runtime::Tokio)
         .build();
 
@@ -134,11 +137,11 @@ fn configure_logging() -> Result<(TracerProvider, LoggerProvider), anyhow::Error
 
     let logger_provider = LoggerProvider::builder()
         .with_resource(resource)
-        .with_simple_exporter(log_exporter)
-        // .with_batch_exporter(exporter, runtime::Tokio)
+        // .with_simple_exporter(log_exporter)
+        .with_batch_exporter(log_exporter, runtime::Tokio)
         .build();
 
-    let layer = layer::OpenTelemetryTracingBridge::new(&logger_provider);
+    let otel_layer = layer::OpenTelemetryTracingBridge::new(&logger_provider);
 
     // Add a tracing filter to filter events from crates used by opentelemetry-otlp.
     // The filter levels are set as follows:
@@ -153,14 +156,12 @@ fn configure_logging() -> Result<(TracerProvider, LoggerProvider), anyhow::Error
         .add_directive("tonic=error".parse()?)
         .add_directive("reqwest=error".parse()?);
 
+    let filter = filter.add_directive(format!("{}=debug", env!("CARGO_CRATE_NAME")).parse()?);
+
     tracing_subscriber::registry()
         .with(filter)
-        .with(layer)
-        .with(
-            EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| format!("{}=debug", env!("CARGO_CRATE_NAME")).into()),
-        )
         .with(tracing_subscriber::fmt::layer())
+        .with(otel_layer)
         .init();
 
     Ok((tracer_provider, logger_provider))
@@ -351,17 +352,9 @@ async fn oauth_google(
     // let user_profile = serde_json::from_str::<UserProfile>(&profile_response).unwrap();
 
     let user_profile = profile.json::<GoogleUserProfile>().await?;
-    debug!("UserProfile: {:?}", user_profile);
+    info!("UserProfile: {:?}", user_profile);
 
-    let employee = app
-        .employee_dao
-        .employee_by_email(user_profile.email.clone())
-        .await?;
-
-    let employee = match employee {
-        Some(e) => e,
-        None => create_employee(&app, &user_profile).await?,
-    };
+    let employee = load_or_create_employee(&app, &user_profile).await?;
 
     let session_user = SessionUser {
         employee: employee.id,
@@ -396,10 +389,20 @@ async fn oauth_google(
     Ok((headers, Redirect::to("/")))
 }
 
-async fn create_employee(
+async fn load_or_create_employee(
     app: &ServerImpl,
     user_profile: &GoogleUserProfile,
 ) -> Result<Employee, anyhow::Error> {
+    let employee = app
+        .employee_dao
+        .employee_by_email(user_profile.email.clone())
+        .await?;
+
+    if let Some(e) = employee {
+        info!("Loaded employee user: {:?}", e);
+        return Ok(e);
+    }
+
     let employee = app
         .employee_dao
         .insert_employee(user_profile.email.clone(), user_profile.name.clone())
