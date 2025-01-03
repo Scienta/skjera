@@ -19,29 +19,6 @@ pub struct EmployeeDao {
 }
 
 impl EmployeeDao {
-    pub(crate) async fn add_some_account(
-        &self,
-        employee: EmployeeId,
-        network: String,
-        nick: Option<String>,
-        url: Option<String>,
-    ) -> Result<SomeAccount, Error> {
-        sqlx::query_as!(
-            SomeAccount,
-            "INSERT INTO skjera.some_account(employee, network, nick, url)
-             VALUES ($1, $2, $3, $4)
-             RETURNING *",
-            employee.0,
-            network,
-            nick,
-            url
-        )
-        .fetch_one(&self.pool)
-        .await
-    }
-}
-
-impl EmployeeDao {
     pub(crate) fn new(pool: Pool<Postgres>) -> EmployeeDao {
         EmployeeDao { pool }
     }
@@ -93,6 +70,27 @@ impl EmployeeDao {
         )
         .fetch_one(&self.pool)
         .await
+    }
+
+    pub(crate) async fn add_some_account(
+        &self,
+        employee: EmployeeId,
+        network: String,
+        nick: Option<String>,
+        url: Option<String>,
+    ) -> Result<SomeAccount, Error> {
+        sqlx::query_as!(
+            SomeAccount,
+            "INSERT INTO skjera.some_account(employee, network, nick, url)
+             VALUES ($1, $2, $3, $4)
+             RETURNING *",
+            employee.0,
+            network,
+            nick,
+            url
+        )
+            .fetch_one(&self.pool)
+            .await
     }
 
     pub(crate) async fn some_accounts_by_employee(
