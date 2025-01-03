@@ -18,11 +18,12 @@ pub(crate) struct AuthRequest {
     code: String,
 }
 
+#[tracing::instrument]
 pub(crate) async fn oauth_google(
     Query(query): Query<AuthRequest>,
     State(app): State<ServerImpl>,
 ) -> Result<(HeaderMap, Redirect), AppError> {
-    let _method = span!(Level::INFO, "oauth_google");
+    let _method = span!(Level::INFO, "oauth_google_inner");
 
     let code = query.code;
     debug!("code: {}", code);

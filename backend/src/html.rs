@@ -39,6 +39,7 @@ struct MeTemplate<'a> {
     pub some_accounts: Vec<SomeAccount>,
 }
 
+#[tracing::instrument]
 pub async fn get_me(
     State(app): State<ServerImpl>,
     user: SessionUser,
@@ -68,6 +69,7 @@ pub(crate) struct MeForm {
     dob_day: u8,
 }
 
+#[tracing::instrument]
 pub async fn post_me(
     State(app): State<ServerImpl>,
     user: SessionUser,
@@ -181,6 +183,7 @@ impl EmployeeTemplate {
     }
 }
 
+#[tracing::instrument]
 pub async fn employee(
     State(app): State<ServerImpl>,
     _user: SessionUser,
@@ -205,6 +208,7 @@ struct HelloTemplate {
     pub employees: Option<Vec<Employee>>,
 }
 
+#[tracing::instrument]
 pub async fn hello_world(
     State(app): State<ServerImpl>,
     user: Option<SessionUser>,

@@ -19,12 +19,13 @@ use axum::RequestPartsExt;
 use axum_extra::typed_header::TypedHeaderRejectionReason;
 use axum_extra::TypedHeader;
 use oauth2::basic::BasicClient;
+use opentelemetry::trace::TracerProvider as _;
 use opentelemetry::{global, KeyValue};
 use opentelemetry_appender_tracing::layer;
 use opentelemetry_otlp::{LogExporter, SpanExporter};
 use opentelemetry_sdk::logs::LoggerProvider;
 use opentelemetry_sdk::trace::TracerProvider;
-use opentelemetry_sdk::{runtime, trace as sdk_trace, Resource};
+use opentelemetry_sdk::{runtime, Resource};
 use reqwest::Client as ReqwestClient;
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgConnectOptions;
@@ -118,13 +119,17 @@ fn configure_logging() -> Result<(TracerProvider, LoggerProvider), anyhow::Error
 
     let span_exporter = SpanExporter::builder().with_tonic().build()?;
 
-    let tracer_provider = sdk_trace::TracerProvider::builder()
+    let tracer_provider = TracerProvider::builder()
         .with_resource(resource.clone())
         // .with_simple_exporter(span_exporter)
         .with_batch_exporter(span_exporter, runtime::Tokio)
         .build();
 
+    let tracer = tracer_provider.tracer("main");
+
     global::set_tracer_provider(tracer_provider.clone());
+
+    let otel_tracing_layer = tracing_opentelemetry::layer().with_tracer(tracer);
 
     let log_exporter = LogExporter::builder().with_tonic().build()?;
 
@@ -155,6 +160,7 @@ fn configure_logging() -> Result<(TracerProvider, LoggerProvider), anyhow::Error
         .with(filter)
         .with(tracing_subscriber::fmt::layer())
         .with(otel_layer)
+        .with(otel_tracing_layer)
         .init();
 
     Ok((tracer_provider, logger_provider))

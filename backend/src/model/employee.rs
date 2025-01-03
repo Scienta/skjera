@@ -23,18 +23,21 @@ impl EmployeeDao {
         EmployeeDao { pool }
     }
 
+    #[tracing::instrument]
     pub(crate) async fn employees(&self) -> Result<Vec<Employee>, Error> {
         sqlx::query_as!(Employee, "SELECT * FROM skjera.employee")
             .fetch_all(&self.pool)
             .await
     }
 
+    #[tracing::instrument]
     pub(crate) async fn employee_by_id(&self, id: EmployeeId) -> Result<Option<Employee>, Error> {
         sqlx::query_as!(Employee, "SELECT * FROM skjera.employee WHERE id=$1", id.0)
             .fetch_optional(&self.pool)
             .await
     }
 
+    #[tracing::instrument]
     pub(crate) async fn employee_by_email(&self, email: String) -> Result<Option<Employee>, Error> {
         sqlx::query_as!(
             Employee,
@@ -45,6 +48,7 @@ impl EmployeeDao {
         .await
     }
 
+    #[tracing::instrument]
     pub(crate) async fn insert_employee(
         &self,
         email: String,
@@ -60,6 +64,7 @@ impl EmployeeDao {
         .await
     }
 
+    #[tracing::instrument]
     pub(crate) async fn update(&self, employee: &Employee) -> Result<Employee, Error> {
         sqlx::query_as!(
             Employee,
@@ -72,6 +77,7 @@ impl EmployeeDao {
         .await
     }
 
+    #[tracing::instrument]
     pub(crate) async fn add_some_account(
         &self,
         employee: EmployeeId,
@@ -93,6 +99,7 @@ impl EmployeeDao {
             .await
     }
 
+    #[tracing::instrument]
     pub(crate) async fn some_accounts_by_employee(
         &self,
         employee_id: EmployeeId,
@@ -106,6 +113,7 @@ impl EmployeeDao {
         .await
     }
 
+    #[tracing::instrument]
     pub(crate) async fn delete_some_account(
         &self,
         id: SomeAccountId,
