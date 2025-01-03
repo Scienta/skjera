@@ -20,7 +20,15 @@
 {% if let Some(employees) = self.employees %}
 <h2>Employees</h2>
 <table>
-    {% for employee in employees %}
+<thead>
+<tr>
+    <th>Name</th>
+    <th>Email</th>
+    <th>Date of birth</th>
+</tr>
+</thead>
+<tbody>
+{%- for employee in employees %}
     <tr>
         <td>
             <a href="/employee/{{ employee.id }}">{{ employee.name }}</a>
@@ -29,12 +37,13 @@
             <a href="mailto:{{ employee.email }}">{{ employee.email }}</a>
         </td>
         <td>
-            {% if let Some(dob) = employee.dob %}
-            {{ dob.day()|fmt("{:?}") }}{{ dob.month()|fmt("{:?}") }}
-            {% endif %}
+            {%- if let Some(dob) = employee.dob -%}
+            {{ dob.month()|fmt("{:?}") }} {{ dob.day()|fmt("{:?}") }}
+            {%- endif -%}
         </td>
     </tr>
-    {% endfor %}
+{%- endfor %}
+</tbody>
 </table>
 {% endif %}
 {% endblock %}
