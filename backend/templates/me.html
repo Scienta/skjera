@@ -1,15 +1,15 @@
-<!DOCTYPE html>
-<html>
-<head>
-    <link rel="icon" href="data:;base64,," />
-    <link rel="stylesheet" href="/assets/reset-zone.regular.css">
-    <style>
-        tr th {
-            vertical-align: top;
-        }
-    </style>
-</head>
-<body>
+{% extends "_base.html" %}
+
+{% block title %}Edit Profile{% endblock %}
+{% block head %}
+<style>
+    tr th {
+        vertical-align: top;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
 <h1>Edit profile</h1>
 <form action="/me" method="POST">
 <table>
@@ -125,5 +125,4 @@
 </table>
 </form>
 
-</body>
-</html>
+{% endblock %}

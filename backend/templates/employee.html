@@ -1,12 +1,8 @@
-<!DOCTYPE html>
-<html>
-<head>
-    <link rel="icon" href="data:;base64,," />
-    <link rel="stylesheet" href="/assets/reset-zone.regular.css">
-    <title>Skjera - {{ employee.name }}</title>
-</head>
-<body>
+{% extends "_base.html" %}
+
+{% block title %}{{ employee.name }}{% endblock %}
+
+{% block content %}
 <h1>Skjera - {{ employee.name }}</h1>
 Date of birth: {{ Self::dob(self) }}
-</body>
-</html>
+{% endblock %}
