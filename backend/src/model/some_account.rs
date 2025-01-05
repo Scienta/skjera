@@ -31,9 +31,9 @@ pub(crate) static SLACK: Lazy<SomeNetwork> = Lazy::new(|| SomeNetwork(String::fr
 pub(crate) static X: Lazy<SomeNetwork> = Lazy::new(|| SomeNetwork(String::from("x")));
 
 impl SomeNetwork {
-    pub fn is_slack(self: &Self) -> bool {
-        self.0 == SLACK.0
-    }
+    // pub fn is_slack(self: &Self) -> bool {
+    //     self.0 == SLACK.0
+    // }
 }
 
 impl FromStr for SomeNetwork {

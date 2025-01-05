@@ -5,4 +5,30 @@
 {% block content %}
 <h1>Skjera - {{ employee.name }}</h1>
 Date of birth: {{ Self::dob(self) }}
+
+<table>
+<thead>
+<tr>
+    <td>Network</td>
+    <td>Network instance</td>
+    <td>Subject</td>
+    <td>Name</td>
+    <td>Nick</td>
+    <td>Avatar</td>
+</tr>
+</thead>
+<tbody>
+{%- for sa in some_accounts %}
+<tr>
+  <td>{{ sa.network }}</td>
+  <td>{% if let Some(network_instance) = sa.network_instance %}{{ network_instance }}{% endif %}</td>
+  <td>{% if let Some(subject) = sa.subject %}{{ subject }}{% endif %}</td>
+  <td>{% if let Some(name) = sa.name %}{{ name }}{% endif %}</td>
+  <td>{% if let Some(nick) = sa.nick %}{{ nick }}{% endif %}</td>
+  <td>{% if let Some(avatar) = sa.avatar %}{{ avatar }}{% endif %}</td>
+</tr>
+{%- endfor %}
+</tbody>
+</table>
+
 {% endblock %}

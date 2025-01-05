@@ -190,6 +190,7 @@ pub async fn add_some_account(
 #[template(path = "employee.html")]
 struct EmployeeTemplate {
     employee: Employee,
+    some_accounts: Vec<SomeAccount>,
 }
 
 impl EmployeeTemplate {
@@ -217,7 +218,15 @@ pub async fn employee(
         .await?
         .context("error loading me")?;
 
-    let template = EmployeeTemplate { employee };
+    let some_accounts = app
+        .employee_dao
+        .some_accounts_by_employee(employee_id)
+        .await?;
+
+    let template = EmployeeTemplate {
+        employee,
+        some_accounts,
+    };
 
     Ok(Html(template.render()?))
 }
