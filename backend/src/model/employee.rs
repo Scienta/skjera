@@ -81,19 +81,27 @@ impl EmployeeDao {
     pub(crate) async fn add_some_account(
         &self,
         employee: EmployeeId,
-        network: String,
+        network: SomeNetwork,
+        network_instance: Option<String>,
+        subject: Option<String>,
+        name: Option<String>,
         nick: Option<String>,
         url: Option<String>,
+        avatar: Option<String>,
     ) -> Result<SomeAccount, Error> {
         sqlx::query_as!(
             SomeAccount,
-            "INSERT INTO skjera.some_account(employee, network, nick, url)
-             VALUES ($1, $2, $3, $4)
+            "INSERT INTO skjera.some_account(employee, network, network_instance, subject, name, nick, url, avatar)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
              RETURNING *",
             employee.0,
-            network,
+            network.0,
+            network_instance,
+            subject,
+            name,
             nick,
-            url
+            url,
+            avatar,
         )
             .fetch_one(&self.pool)
             .await

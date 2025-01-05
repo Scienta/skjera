@@ -56,8 +56,7 @@ pub async fn get_me(
 
     // let slack_url = app.slack_connect
     //     .and_then(|slack_connect| slack_connect.slack_url().ok());
-    let slack_url = app.slack_connect
-        .map(|_|"/oauth/slack-begin".to_string());
+    let slack_url = app.slack_connect.map(|_| "/oauth/slack-begin".to_string());
 
     let template = MeTemplate {
         month_names: MONTH_NAMES.as_slice(),
@@ -146,26 +145,41 @@ pub async fn add_some_account(
 
     info!("input" = ?input, "Adding some account");
 
-    let mut network: Option<String> = None;
+    let mut network: Option<SomeNetwork> = None;
+    let mut subject: Option<String> = None;
     let mut nick: Option<String> = None;
     let mut url: Option<String> = None;
 
     if input.button_bluesky.is_some() {
-        network = Some("bluesky".to_string());
+        network = Some(BLUESKY.to_owned());
         nick = Some(input.bluesky.clone());
+        subject = nick.clone();
         url = Some(format!("https://bsky.app/profile/{}", input.bluesky.clone()).to_string());
     } else if input.button_linkedin.is_some() {
-        network = Some("linkedin".to_string());
+        network = Some(LINKED_IN.to_owned());
         url = Some(input.linkedin);
     } else if input.button_x.is_some() && input.x.trim().len() > 0 {
-        network = Some("x".to_string());
+        network = Some(X.to_owned());
         nick = Some(input.x.clone());
+        subject = nick.clone();
         url = Some(format!("https://x.com/{}", input.x.clone()).to_string());
     }
 
     if let Some(network) = network {
+        let instance = None;
+        let name = None;
+        let avatar = None;
         app.employee_dao
-            .add_some_account(user.employee, network.to_string(), nick, url)
+            .add_some_account(
+                user.employee,
+                network,
+                instance,
+                subject,
+                name,
+                nick,
+                url,
+                avatar,
+            )
             .await?;
     }
 

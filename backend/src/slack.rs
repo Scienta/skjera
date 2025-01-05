@@ -1,6 +1,6 @@
 use crate::oauth::OauthResponse;
 use crate::session::{SkjeraSession, SkjeraSessionData, SlackConnectData};
-use crate::{AppError, ServerImpl};
+use crate::{model, AppError, ServerImpl};
 use anyhow::{anyhow, Result};
 use axum::extract::{Query, State};
 use axum::response::Redirect;
@@ -14,8 +14,8 @@ use openidconnect::{
     PkceCodeChallenge, RedirectUrl, Scope,
 };
 use openidconnect::{OAuth2TokenResponse, TokenResponse};
-use tracing::{debug, span};
-use tracing::{info, Level};
+use std::fmt::Debug;
+use tracing::{debug, info, span, Level};
 use url::Url;
 
 #[derive(Clone, Debug)]
@@ -87,7 +87,7 @@ impl SlackConnect {
         self: &Self,
         session: SlackConnectData,
         code: String,
-    ) -> Result<()> {
+    ) -> Result<CoreUserInfoClaims> {
         let pkce_verifier = PkceCodeVerifier::new(session.pkce_verifier);
 
         let token_response = span!(Level::INFO, "slack_connect", function = "exchange_token")
@@ -123,36 +123,28 @@ impl SlackConnect {
             }
         }
 
-        // The authenticated user's identity is now available. See the IdTokenClaims struct for a
-        // complete listing of the available claims.
-        println!(
-            "User {} with e-mail address {} has authenticated successfully",
-            claims.subject().as_str(),
-            claims
-                .email()
-                .map(|email| email.as_str())
-                .unwrap_or("<not provided>"),
-        );
-
         // If available, we can use the UserInfo endpoint to request additional information.
 
         // The user_info request uses the AccessToken returned in the token response. To parse custom
         // claims, use UserInfoClaims directly (with the desired type parameters) rather than using the
         // CoreUserInfoClaims type alias.
-        let userinfo: CoreUserInfoClaims = self
-            .client
-            .user_info(token_response.access_token().to_owned(), None)
-            .map_err(|err| anyhow!("No user info endpoint: {:?}", err))?
-            .request_async(async_http_client)
-            .await
-            .map_err(|err| anyhow!("Failed requesting user info: {:?}", err))?;
+        let user_info = span!(Level::INFO, "slack_connect", function = "user_info")
+            .in_scope(|| async {
+                self.client
+                    .user_info(token_response.access_token().to_owned(), None)
+                    .map_err(|err| anyhow!("No user info endpoint: {:?}", err))?
+                    .request_async(async_http_client)
+                    .await
+                    .map_err(|err| anyhow!("Failed requesting user info: {:?}", err))
+            })
+            .await?;
 
         // See the OAuth2TokenResponse trait for a listing of other available fields such as
         // access_token() and refresh_token().
 
-        info!("slack user info {:?}", userinfo);
+        info!("slack user info {:?}", user_info);
 
-        Ok(())
+        Ok(user_info)
     }
 }
 
@@ -199,8 +191,27 @@ pub(crate) async fn oauth_slack(
         .slack_connect
         .ok_or_else(|| anyhow!("Not in a oauth process"))?;
 
-    slack_connect
+    let user_info = slack_connect
         .slack_connect_continue(slack_connect_data, query.code)
+        .await?;
+
+    app.employee_dao
+        .add_some_account(
+            session.employee,
+            model::SLACK.to_owned(),
+            None,
+            Some(user_info.subject().to_string()),
+            user_info
+                .name()
+                .and_then(|x| x.get(None).map(|x| x.to_string())),
+            user_info
+                .nickname()
+                .and_then(|x| x.get(None).map(|x| x.to_string())),
+            None,
+            user_info
+                .picture()
+                .and_then(|x| x.get(None).map(|x| x.to_string())),
+        )
         .await?;
 
     Ok(Redirect::to("/"))
