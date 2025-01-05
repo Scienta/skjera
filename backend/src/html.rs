@@ -1,5 +1,6 @@
 use crate::model::*;
-use crate::{AppError, ServerImpl, SessionUser};
+use crate::session::SkjeraSessionData;
+use crate::{AppError, ServerImpl};
 use anyhow::Context;
 use askama_axum::Template;
 use axum::extract::{Path, State};
@@ -43,7 +44,7 @@ struct MeTemplate<'a> {
 #[tracing::instrument]
 pub async fn get_me(
     State(app): State<ServerImpl>,
-    user: SessionUser,
+    user: SkjeraSessionData,
 ) -> Result<Html<String>, AppError> {
     let me = app
         .employee_dao
@@ -79,7 +80,7 @@ pub(crate) struct MeForm {
 #[tracing::instrument]
 pub async fn post_me(
     State(app): State<ServerImpl>,
-    user: SessionUser,
+    user: SkjeraSessionData,
     Form(input): Form<MeForm>,
 ) -> Result<Redirect, AppError> {
     debug!("form: {:?}", input);
@@ -109,7 +110,7 @@ pub async fn post_me(
 
 pub async fn delete_some_account(
     State(app): State<ServerImpl>,
-    user: SessionUser,
+    user: SkjeraSessionData,
     Path(some_account_id): Path<SomeAccountId>,
 ) -> Result<Redirect, AppError> {
     info!(
@@ -138,7 +139,7 @@ pub(crate) struct AddSomeAccountForm {
 
 pub async fn add_some_account(
     State(app): State<ServerImpl>,
-    user: SessionUser,
+    user: SkjeraSessionData,
     Form(input): Form<AddSomeAccountForm>,
 ) -> Result<Redirect, AppError> {
     let _span = span!(Level::INFO, "add_some_account");
@@ -193,7 +194,7 @@ impl EmployeeTemplate {
 #[tracing::instrument]
 pub async fn employee(
     State(app): State<ServerImpl>,
-    _user: SessionUser,
+    _user: SkjeraSessionData,
     Path(employee_id): Path<EmployeeId>,
 ) -> Result<Html<String>, AppError> {
     let employee = app
@@ -210,21 +211,22 @@ pub async fn employee(
 #[derive(Template)]
 #[template(path = "hello.html"/*, print = "all"*/)]
 struct HelloTemplate {
-    pub user: Option<SessionUser>,
+    pub user: SkjeraSessionData,
     pub google_auth_url: Option<String>,
     pub employees: Option<Vec<Employee>>,
 }
 
-#[tracing::instrument]
 pub async fn hello_world(
     State(app): State<ServerImpl>,
-    user: Option<SessionUser>,
+    session: SkjeraSessionData,
 ) -> Result<Html<String>, AppError> {
+    let _span = span!(Level::INFO, "hello_world");
+
     let scope = "openid profile email";
 
     let mut employees = None::<Vec<Employee>>;
     let mut url = None::<String>;
-    if user.is_some() {
+    if session.authenticated() {
         employees = Some(app.employee_dao.employees().await?);
     } else {
         let u = Url::parse_with_params(
@@ -241,7 +243,7 @@ pub async fn hello_world(
     }
 
     let template = HelloTemplate {
-        user,
+        user: session,
         google_auth_url: url,
         employees,
     };

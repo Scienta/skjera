@@ -1,19 +1,12 @@
 use crate::oauth::OauthResponse;
-use crate::{
-    load_session, AppError, ServerImpl, SessionUser, SlackConnectData, COOKIE_NAME,
-    USER_SESSION_KEY,
-};
+use crate::session::{SkjeraSession, SkjeraSessionData, SlackConnectData};
+use crate::{AppError, ServerImpl};
 use anyhow::{anyhow, Result};
-use async_session::{MemoryStore, Session, SessionStore};
 use axum::extract::{Query, State};
-use axum::http::HeaderMap;
 use axum::response::Redirect;
-use axum_extra::extract::cookie::Cookie;
-use axum_extra::extract::CookieJar;
-use axum_extra::TypedHeader;
 use oauth2::PkceCodeVerifier;
 use openidconnect::core::{
-    CoreAuthenticationFlow, CoreClient, CoreProviderMetadata, CoreTokenResponse, CoreUserInfoClaims,
+    CoreAuthenticationFlow, CoreClient, CoreProviderMetadata, CoreUserInfoClaims,
 };
 use openidconnect::reqwest::async_http_client;
 use openidconnect::{
@@ -95,18 +88,13 @@ impl SlackConnect {
         session: SlackConnectData,
         code: String,
     ) -> Result<()> {
-        // Once the user has been redirected to the redirect URL, you'll have access to the
-        // authorization code. For security reasons, your code should verify that the `state`
-        // parameter returned by the server matches `csrf_state`.
-
-        // Now you can exchange it for an access token and ID token.
+        let pkce_verifier = PkceCodeVerifier::new(session.pkce_verifier);
 
         let token_response = span!(Level::INFO, "slack_connect", function = "exchange_token")
             .in_scope(|| async {
                 self.client
                     .exchange_code(AuthorizationCode::new(code))
-                    // TODO: Set the PKCE code verifier.
-                    // .set_pkce_verifier(pkce_verifier)
+                    .set_pkce_verifier(pkce_verifier)
                     .request_async(async_http_client)
                     .await
             })
@@ -117,7 +105,7 @@ impl SlackConnect {
             .id_token()
             .ok_or_else(|| anyhow!("Server did not return an ID token"))?;
 
-        debug!(?id_token, "Got Slack token");
+        debug!("Got Slack token");
 
         let claims = id_token.claims(&self.client.id_token_verifier(), &session.nonce)?;
 
@@ -170,8 +158,7 @@ impl SlackConnect {
 
 pub(crate) async fn oauth_slack_begin(
     State(app): State<ServerImpl>,
-    user: SessionUser,
-    cookie: TypedHeader<headers::Cookie>,
+    mut session: SkjeraSession,
 ) -> std::result::Result<Redirect, AppError> {
     let _method = span!(Level::INFO, "oauth_slack_begin");
 
@@ -183,35 +170,23 @@ pub(crate) async fn oauth_slack_begin(
 
     info!(
         auth_url = auth_url.as_str(),
-        csrf_token = csrf_token.secret(),
-        nonce = nonce.secret(),
-        pkce_verifier = pkce_verifier.secret(),
+        // csrf_token = csrf_token.secret(),
+        // nonce = nonce.secret(),
+        // pkce_verifier = pkce_verifier.secret(),
         "Slack connect successful"
     );
-    debug!("Slack connect successful");
 
-    let user = user.with_slack_connect(csrf_token, nonce, pkce_verifier);
-
-    let cookie = cookie.get(COOKIE_NAME).ok_or(anyhow!("cookie not found"))?;
-
-    let mut session = app
-        .store
-        .load_session(cookie.to_string())
-        .await
-        .and_then(|session| session.ok_or_else(|| anyhow!("session not found")))?;
-
-    session.insert(USER_SESSION_KEY, user)?;
-
-    let _ = app.store.store_session(session).await?;
+    session
+        .with_slack_connect(csrf_token, nonce, pkce_verifier)
+        .await?;
 
     Ok(Redirect::to(auth_url.as_str()))
 }
 
 pub(crate) async fn oauth_slack(
     State(app): State<ServerImpl>,
-    _user: SessionUser,
     Query(query): Query<OauthResponse>,
-    cookie: TypedHeader<headers::Cookie>,
+    session: SkjeraSessionData,
 ) -> std::result::Result<Redirect, AppError> {
     let _method = span!(Level::INFO, "oauth_slack");
 
@@ -220,17 +195,11 @@ pub(crate) async fn oauth_slack(
         .slack_connect
         .ok_or_else(|| anyhow!("slack not enabled"))?;
 
-    let session = load_session(cookie, &app).await?;
-
-    let session = session
-        .get::<SessionUser>(USER_SESSION_KEY)
-        .ok_or_else(|| anyhow!("session not found"))?;
-
     let slack_connect_data = session
         .slack_connect
-        .ok_or_else(|| anyhow!("slack not enabled"))?;
+        .ok_or_else(|| anyhow!("Not in a oauth process"))?;
 
-    let res = slack_connect
+    slack_connect
         .slack_connect_continue(slack_connect_data, query.code)
         .await?;
 

@@ -1,16 +1,13 @@
 use crate::model::Employee;
-use crate::{AppError, ServerImpl, SessionUser, COOKIE_NAME};
-use anyhow::Context;
-use async_session::{Session, SessionStore};
+use crate::{AppError, ServerImpl};
 use axum::extract::{Query, State};
-use axum::http::header::SET_COOKIE;
-use axum::http::HeaderMap;
 use axum::response::Redirect;
 use oauth2::basic::BasicClient;
 use oauth2::reqwest::async_http_client;
 use oauth2::{AuthUrl, AuthorizationCode, ClientId, ClientSecret, RedirectUrl, TokenResponse, TokenUrl};
 use serde::{Deserialize, Serialize};
 use tracing::{debug, info, span, Level};
+use crate::session::SkjeraSession;
 
 #[derive(Debug, Deserialize)]
 #[allow(dead_code)]
@@ -21,7 +18,8 @@ pub(crate) struct OauthResponse {
 pub(crate) async fn oauth_google(
     Query(query): Query<OauthResponse>,
     State(app): State<ServerImpl>,
-) -> Result<(HeaderMap, Redirect), AppError> {
+    mut session: SkjeraSession,
+) -> Result<Redirect, AppError> {
     let _method = span!(Level::INFO, "oauth_google_inner");
 
     let code = query.code;
@@ -55,38 +53,9 @@ pub(crate) async fn oauth_google(
 
     let employee = load_or_create_employee(&app, &user_profile).await?;
 
-    let session_user = SessionUser {
-        employee: employee.id,
-        email: user_profile.email,
-        name: user_profile.name,
-        slack_connect: None,
-    };
+    session.mark_logged_in(employee.id, user_profile.email, user_profile.name).await?;
 
-    // Create a new session filled with user data
-    let mut session = Session::new();
-    session
-        .insert("user", &session_user)
-        .context("failed in inserting serialized value into session")?;
-
-    // Store session and get corresponding cookie
-    let cookie = app
-        .store
-        .store_session(session)
-        .await
-        .context("failed to store session")?
-        .context("unexpected error retrieving cookie value")?;
-
-    // Build the cookie
-    let cookie = format!("{COOKIE_NAME}={cookie}; SameSite=Lax; HttpOnly; Secure; Path=/");
-
-    // Set cookie
-    let mut headers = HeaderMap::new();
-    headers.insert(
-        SET_COOKIE,
-        cookie.parse().context("failed to parse cookie")?,
-    );
-
-    Ok((headers, Redirect::to("/")))
+    Ok(Redirect::to("/"))
 }
 
 async fn load_or_create_employee(

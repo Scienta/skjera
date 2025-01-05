@@ -4,6 +4,7 @@ mod macros;
 mod meta;
 mod model;
 mod oauth;
+mod session;
 #[cfg(any())]
 mod skjera;
 mod slack;
@@ -11,19 +12,9 @@ mod web;
 
 use crate::model::*;
 use crate::slack::SlackConnect;
-use anyhow::{anyhow, Error};
-use async_session::{MemoryStore, Session, SessionStore};
-use axum::extract::{FromRef, FromRequestParts, OptionalFromRequestParts};
-use axum::http::request::Parts;
-use axum::http::{header, StatusCode};
+use axum::http::StatusCode;
 use axum::response::{IntoResponse, Redirect, Response};
-use axum::RequestPartsExt;
-use axum_extra::typed_header::TypedHeaderRejectionReason;
-use axum_extra::TypedHeader;
-use headers;
 use oauth2::basic::BasicClient;
-use oauth2::{CsrfToken, PkceCodeVerifier};
-use openidconnect::Nonce;
 use opentelemetry::trace::TracerProvider as _;
 use opentelemetry::{global, KeyValue};
 use opentelemetry_appender_tracing::layer;
@@ -32,19 +23,17 @@ use opentelemetry_sdk::logs::LoggerProvider;
 use opentelemetry_sdk::trace::TracerProvider;
 use opentelemetry_sdk::{runtime, Resource};
 use reqwest::Client as ReqwestClient;
-use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgConnectOptions;
 use std::env;
 use std::process::exit;
 use tokio::net::TcpListener;
 use tokio::signal;
 use tower_http::trace::TraceLayer;
+use tower_sessions::cookie::SameSite::Lax;
+use tower_sessions::{MemoryStore, SessionManagerLayer, SessionStore};
 use tracing::{debug, info, warn};
 use tracing_subscriber::prelude::*;
 use tracing_subscriber::EnvFilter;
-
-pub(crate) static COOKIE_NAME: &str = "SESSION";
-const USER_SESSION_KEY: &'static str = "user";
 
 #[tokio::main]
 async fn main() {
@@ -115,7 +104,6 @@ async fn main() {
         cfg,
         basic_client,
         employee_dao: EmployeeDao::new(pool),
-        store: MemoryStore::new(),
         slack_connect,
     };
 
@@ -125,7 +113,13 @@ async fn main() {
     //     info!(name: "my-event-name", target: "my-system", event_id = 20, user_name = "otel", user_email = "otel@opentelemetry.io", message = "This is an example message");
     // });
 
-    start_server(server_impl, "0.0.0.0:8080").await;
+    let session_store = MemoryStore::default();
+    let session_layer = SessionManagerLayer::new(session_store)
+        .with_secure(true)
+        .with_http_only(true)
+        .with_same_site(Lax);
+
+    start_server(server_impl, session_layer, "0.0.0.0:8080").await;
 
     providers.0.shutdown().unwrap();
     providers.1.shutdown().unwrap();
@@ -198,21 +192,20 @@ struct ServerImpl {
     ctx: ReqwestClient,
     cfg: Config,
     basic_client: BasicClient,
-    store: MemoryStore,
     pub employee_dao: EmployeeDao,
     pub slack_connect: Option<SlackConnect>,
 }
 
-impl FromRef<ServerImpl> for MemoryStore {
-    fn from_ref(state: &ServerImpl) -> Self {
-        state.store.clone()
-    }
-}
-
-async fn start_server(server_impl: ServerImpl, addr: &str) {
-    let app = web::create_router(server_impl);
-
-    let app = app.layer(TraceLayer::new_for_http());
+async fn start_server<SS>(
+    server_impl: ServerImpl,
+    session_layer: SessionManagerLayer<SS>,
+    addr: &str,
+) where
+    SS: SessionStore + Clone,
+{
+    let app = web::create_router(server_impl)
+        .layer(session_layer)
+        .layer(TraceLayer::new_for_http());
 
     // Run the server with graceful shutdown
     let listener = TcpListener::bind(addr).await.unwrap();
@@ -330,138 +323,5 @@ pub struct AuthRedirect;
 impl IntoResponse for AuthRedirect {
     fn into_response(self) -> Response {
         Redirect::temporary("/").into_response()
-    }
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-pub struct SessionUser {
-    employee: EmployeeId,
-    email: String,
-    name: String,
-    slack_connect: Option<SlackConnectData>,
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-pub struct SlackConnectData {
-    csrf_token: CsrfToken,
-    nonce: Nonce,
-    pkce_verifier: PkceCodeVerifier,
-}
-
-impl SessionUser {
-    pub(crate) fn with_slack_connect(
-        self,
-        csrf_token: CsrfToken,
-        nonce: Nonce,
-        pkce_verifier: PkceCodeVerifier,
-    ) -> Self {
-        SessionUser {
-            slack_connect: Some(SlackConnectData {
-                csrf_token,
-                nonce,
-                pkce_verifier,
-            }),
-            ..self
-        }
-    }
-}
-
-async fn load_session_from_parts<S>(parts: &mut Parts, state: &S) -> anyhow::Result<Session>
-where
-    MemoryStore: FromRef<S>,
-    S: Send + Sync,
-{
-    let cookies = parts.extract::<TypedHeader<headers::Cookie>>().await?;
-
-    load_session(cookies, state).await
-}
-
-async fn load_session<S>(cookies: TypedHeader<headers::Cookie>, state: &S) -> anyhow::Result<Session>
-where
-    MemoryStore: FromRef<S>,
-    S: Send + Sync,
-{
-    let cookie = cookies
-        .get(COOKIE_NAME)
-        .ok_or(anyhow!("cookie not found"))?
-        .to_string();
-
-    let store = MemoryStore::from_ref(state);
-
-    match store.load_session(cookie).await? {
-        Some(session) => Ok(session),
-        _ => Err(anyhow!("Could not load session")),
-    }
-}
-
-impl<S> OptionalFromRequestParts<S> for SessionUser
-where
-    MemoryStore: FromRef<S>,
-    S: Send + Sync,
-{
-    type Rejection = ();
-
-    async fn from_request_parts(
-        parts: &mut Parts,
-        state: &S,
-    ) -> Result<Option<Self>, Self::Rejection> {
-        let session = load_session_from_parts(parts, state).await;
-
-        let user = session.and_then(|session| {
-            session
-                .get::<SessionUser>(USER_SESSION_KEY)
-                .ok_or(anyhow!("no user in session"))
-        });
-
-        Ok(user.ok())
-    }
-}
-
-impl<S> FromRequestParts<S> for SessionUser
-where
-    MemoryStore: FromRef<S>,
-    S: Send + Sync,
-{
-    type Rejection = AuthRedirect;
-
-    async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
-        let session = load_session_from_parts(parts, state).await;
-
-        let user = session.and_then(|session| {
-            session
-                .get::<SessionUser>(USER_SESSION_KEY)
-                .ok_or(anyhow!("no user in session"))
-        });
-
-        user.map_err(|_| AuthRedirect)
-
-        // let store = MemoryStore::from_ref(state);
-        //
-        // async move {
-        //     let cookies = parts
-        //         .extract::<TypedHeader<headers::Cookie>>()
-        //         .await
-        //         .map_err(|e| match *e.name() {
-        //             header::COOKIE => match e.reason() {
-        //                 TypedHeaderRejectionReason::Missing => AuthRedirect,
-        //                 _ => panic!("unexpected error getting Cookie header(s): {e}"),
-        //             },
-        //             _ => panic!("unexpected error getting cookies: {e}"),
-        //         })?;
-        //     let session_cookie = cookies.get(COOKIE_NAME).ok_or(AuthRedirect)?;
-        //
-        //     let session = store
-        //         .load_session(session_cookie.to_string())
-        //         .await
-        //         .unwrap()
-        //         .ok_or(AuthRedirect)?;
-        //
-        //     let user = session
-        //         .get::<SessionUser>(USER_SESSION_KEY)
-        //         .ok_or(AuthRedirect)?;
-        //
-        //     Ok(user)
-        // }
-        // .await
     }
 }
