@@ -36,6 +36,8 @@ struct MeTemplate<'a> {
     pub dob_month: usize,
     pub dob_day: usize,
     pub some_accounts: Vec<SomeAccount>,
+
+    pub slack_url: Option<String>,
 }
 
 #[tracing::instrument]
@@ -51,12 +53,18 @@ pub async fn get_me(
 
     let some_accounts = app.employee_dao.some_accounts_by_employee(me.id).await?;
 
+    // let slack_url = app.slack_connect
+    //     .and_then(|slack_connect| slack_connect.slack_url().ok());
+    let slack_url = app.slack_connect
+        .map(|_|"/oauth/slack-begin".to_string());
+
     let template = MeTemplate {
         month_names: MONTH_NAMES.as_slice(),
         days: (1..31).collect::<Vec<i32>>(),
         dob_month: me.dob.map(|d| d.month() as usize).unwrap_or_default(),
         dob_day: me.dob.map(|d| d.day() as usize).unwrap_or_default(),
         some_accounts,
+        slack_url,
     };
 
     Ok(Html(template.render()?))

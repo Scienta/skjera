@@ -14,13 +14,12 @@ use tracing::{debug, info, span, Level};
 
 #[derive(Debug, Deserialize)]
 #[allow(dead_code)]
-pub(crate) struct AuthRequest {
-    code: String,
+pub(crate) struct OauthResponse {
+    pub(crate) code: String,
 }
 
-#[tracing::instrument]
 pub(crate) async fn oauth_google(
-    Query(query): Query<AuthRequest>,
+    Query(query): Query<OauthResponse>,
     State(app): State<ServerImpl>,
 ) -> Result<(HeaderMap, Redirect), AppError> {
     let _method = span!(Level::INFO, "oauth_google_inner");
@@ -60,6 +59,7 @@ pub(crate) async fn oauth_google(
         employee: employee.id,
         email: user_profile.email,
         name: user_profile.name,
+        slack_connect: None,
     };
 
     // Create a new session filled with user data
