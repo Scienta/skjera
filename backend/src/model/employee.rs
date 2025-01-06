@@ -82,6 +82,7 @@ impl EmployeeDao {
         &self,
         employee: EmployeeId,
         network: SomeNetwork,
+        authenticated: bool,
         network_instance: Option<String>,
         network_avatar: Option<String>,
         subject: Option<String>,
@@ -92,11 +93,12 @@ impl EmployeeDao {
     ) -> Result<SomeAccount, Error> {
         sqlx::query_as!(
             SomeAccount,
-            "INSERT INTO skjera.some_account(employee, network, network_instance, network_avatar, subject, name, nick, url, avatar)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            "INSERT INTO skjera.some_account(employee, network, authenticated, network_instance, network_avatar, subject, name, nick, url, avatar)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
              RETURNING *",
             employee.0,
             network.0,
+            authenticated,
             network_instance,
             network_avatar,
             subject,

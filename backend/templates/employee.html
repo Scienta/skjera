@@ -11,6 +11,8 @@ Date of birth: {{ Self::dob(self) }}
 <tr>
     <td>Network</td>
     <td>Network instance</td>
+    <td>Authenticated</td>
+    <td>Avatar</td>
     <td>Subject</td>
     <td>Name</td>
     <td>Nick</td>
@@ -22,6 +24,7 @@ Date of birth: {{ Self::dob(self) }}
 <tr>
   <td>{{ sa.network }}</td>
   <td>{% if let Some(network_instance) = sa.network_instance %}{{ network_instance }}{% endif %}</td>
+  <td>{{ sa.authenticated }}</td>
   <td>{% if let Some(network_avatar) = sa.network_avatar %}{{ network_avatar }}{% endif %}</td>
   <td>{% if let Some(subject) = sa.subject %}{{ subject }}{% endif %}</td>
   <td>{% if let Some(name) = sa.name %}{{ name }}{% endif %}</td>

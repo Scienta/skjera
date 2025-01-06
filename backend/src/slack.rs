@@ -222,14 +222,21 @@ pub(crate) async fn oauth_slack(
         .slack_connect_continue(slack_connect_data, query.code)
         .await?;
 
-    let team_domain = user_info.additional_claims().clone().team_domain;
+    let _team_domain = user_info
+        .additional_claims()
+        .clone()
+        .team_domain
+        .map(|team_domain| format!("https://{}.slack.com", team_domain));
+
+    let authenticated = true;
 
     app.employee_dao
         .add_some_account(
             session.employee,
             model::SLACK.to_owned(),
+            authenticated,
             user_info.additional_claims().clone().team_id,
-            team_domain.map(|team_domain| format!("https://{}.slack.com", team_domain)),
+            user_info.additional_claims().clone().team_image_230,
             Some(user_info.subject().to_string()),
             user_info
                 .name()

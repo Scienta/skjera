@@ -12,6 +12,7 @@ pub struct SomeAccount {
     pub id: SomeAccountId,
     pub employee: EmployeeId,
     pub network: SomeNetwork,
+    pub authenticated: bool,
     /// For systems that can have multiple instances, otherwise black.
     pub network_instance: Option<String>,
     pub network_avatar: Option<String>,
