@@ -21,15 +21,16 @@ opentelemetry-appender-tracing = { version = "0.27.0", default-features = false 
 opentelemetry-otlp = { version = "0.27.0", features = ["tracing", "metrics", "logs", "serialize"] }
 opentelemetry-semantic-conventions = { version = "0.27.0" }
 opentelemetry_sdk = { version = "0.27.1", features = ["tracing", "logs", "rt-tokio"] }
-reqwest = { version = "0.12.9", features = ["json"] }
+reqwest = { version = "0.11", features = ["json"] }
 serde = { version = "1.0.216", features = ["derive"] }
+slack = "0.25.0"
 sqlx = { version = "0.8.2", features = ["runtime-tokio-native-tls", "sqlite", "postgres", "time", "uuid"] }
 time = "0.3.37"
 tokio = { version = "1.42.0", features = ["rt", "rt-multi-thread", "macros", "signal"] }
 tower-http = { version = "0.6.2", features = ["fs", "trace"] }
 tower-sessions = { version = "0.14.0", features = ["memory-store"] }
-#tower-sessions-memory-store = { version = "0.14.0", features = [] }
 tracing = { version = "0.1.41", features = ["std", "log"] }
 tracing-opentelemetry = { version = "0.28.0", features = [] }
 tracing-subscriber = { version = "0.3.19", features = ["env-filter", "registry", "fmt"] }
 url = "2.5.4"
+serde_json = "1.0.134"

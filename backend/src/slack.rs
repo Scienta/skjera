@@ -4,19 +4,35 @@ use crate::{model, AppError, ServerImpl};
 use anyhow::{anyhow, Result};
 use axum::extract::{Query, State};
 use axum::response::Redirect;
-use oauth2::PkceCodeVerifier;
+use oauth2::{HttpRequest, HttpResponse, PkceCodeVerifier};
 use openidconnect::core::{
-    CoreAuthenticationFlow, CoreClient, CoreProviderMetadata, CoreUserInfoClaims,
+    CoreAuthenticationFlow, CoreClient, CoreGenderClaim, CoreProviderMetadata,
 };
 use openidconnect::reqwest::async_http_client;
 use openidconnect::{
-    AccessTokenHash, AuthorizationCode, ClientId, ClientSecret, CsrfToken, IssuerUrl, Nonce,
-    PkceCodeChallenge, RedirectUrl, Scope,
+    AccessTokenHash, AdditionalClaims, AuthorizationCode, ClientId, ClientSecret, CsrfToken,
+    IssuerUrl, Nonce, OAuth2TokenResponse, PkceCodeChallenge, RedirectUrl, Scope, TokenResponse,
+    UserInfoClaims,
 };
-use openidconnect::{OAuth2TokenResponse, TokenResponse};
+use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
 use tracing::{debug, info, span, Level};
 use url::Url;
+
+type SlackUserInfoClaims = UserInfoClaims<SlackAdditionalClaims, CoreGenderClaim>;
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+struct SlackAdditionalClaims {
+    #[serde(rename = "https://slack.com/team_id")]
+    team_id: Option<String>,
+
+    #[serde(rename = "https://slack.com/team_domain")]
+    team_domain: Option<String>,
+
+    #[serde(rename = "https://slack.com/team_image_230")]
+    team_image_230: Option<String>,
+}
+impl AdditionalClaims for SlackAdditionalClaims {}
 
 #[derive(Clone, Debug)]
 pub(crate) struct SlackConnect {
@@ -40,6 +56,7 @@ impl SlackConnect {
         // Create an OpenID Connect client by specifying the client ID, client secret, authorization URL
         // and token URL.
 
+        // let client = SlackOauth2Client::from_provider_metadata(
         let client = CoreClient::from_provider_metadata(
             provider_metadata,
             ClientId::new(client_id.clone()),
@@ -49,18 +66,6 @@ impl SlackConnect {
 
         Ok(SlackConnect { client })
     }
-
-    // pub(crate) fn slack_url(self: &Self) -> Result<String> {
-    //     let mut url = Url::parse("https://slack.com/openid/connect/authorize")?;
-    //
-    //     url.query_pairs_mut()
-    //         .append_pair("scope", "openid email profile")
-    //         .append_pair("response_type", "code")
-    //         .append_pair("client_id", self.client_id.as_str())
-    //         .append_pair("redirect_uri", self.redirect_url.as_str());
-    //
-    //     Ok(url.to_string())
-    // }
 
     async fn slack_connect_begin(self: &Self) -> Result<(Url, CsrfToken, Nonce, PkceCodeVerifier)> {
         // Generate a PKCE challenge.
@@ -83,11 +88,32 @@ impl SlackConnect {
         Ok((auth_url, csrf_token, nonce, pkce_verifier))
     }
 
+    //noinspection RsConstantConditionIf
+    async fn slack_http_client(
+        req: HttpRequest,
+    ) -> Result<HttpResponse, oauth2::reqwest::Error<reqwest::Error>> {
+        let result = async_http_client(req).await?;
+
+        // Enable this to log http responses
+        if false {
+            let r = result.clone();
+
+            let body = r.body;
+
+            let json: serde_json::Value =
+                serde_json::from_slice(body.as_slice()).expect("JSON was not well-formatted");
+
+            info!("JSON {}", json);
+        }
+
+        Ok(result)
+    }
+
     async fn slack_connect_continue(
         self: &Self,
         session: SlackConnectData,
         code: String,
-    ) -> Result<CoreUserInfoClaims> {
+    ) -> Result<SlackUserInfoClaims> {
         let pkce_verifier = PkceCodeVerifier::new(session.pkce_verifier);
 
         let token_response = span!(Level::INFO, "slack_connect", function = "exchange_token")
@@ -95,7 +121,7 @@ impl SlackConnect {
                 self.client
                     .exchange_code(AuthorizationCode::new(code))
                     .set_pkce_verifier(pkce_verifier)
-                    .request_async(async_http_client)
+                    .request_async(&Self::slack_http_client)
                     .await
             })
             .await?;
@@ -106,6 +132,7 @@ impl SlackConnect {
             .ok_or_else(|| anyhow!("Server did not return an ID token"))?;
 
         debug!("Got Slack token");
+        debug!("Got Slack token: {}", id_token.to_string());
 
         let claims = id_token.claims(&self.client.id_token_verifier(), &session.nonce)?;
 
@@ -133,7 +160,7 @@ impl SlackConnect {
                 self.client
                     .user_info(token_response.access_token().to_owned(), None)
                     .map_err(|err| anyhow!("No user info endpoint: {:?}", err))?
-                    .request_async(async_http_client)
+                    .request_async(&Self::slack_http_client)
                     .await
                     .map_err(|err| anyhow!("Failed requesting user info: {:?}", err))
             })
@@ -195,11 +222,14 @@ pub(crate) async fn oauth_slack(
         .slack_connect_continue(slack_connect_data, query.code)
         .await?;
 
+    let team_domain = user_info.additional_claims().clone().team_domain;
+
     app.employee_dao
         .add_some_account(
             session.employee,
             model::SLACK.to_owned(),
-            None,
+            user_info.additional_claims().clone().team_id,
+            team_domain.map(|team_domain| format!("https://{}.slack.com", team_domain)),
             Some(user_info.subject().to_string()),
             user_info
                 .name()

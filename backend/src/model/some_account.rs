@@ -14,6 +14,7 @@ pub struct SomeAccount {
     pub network: SomeNetwork,
     /// For systems that can have multiple instances, otherwise black.
     pub network_instance: Option<String>,
+    pub network_avatar: Option<String>,
     /// The account's ID on the network
     pub subject: Option<String>,
     pub name: Option<String>,

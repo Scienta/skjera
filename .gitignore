@@ -3,5 +3,6 @@
 .env
 *.tmp.*
 tmp
+tmp.*
 *.tmp
 *.env
