@@ -10,4 +10,4 @@ PATH=$(pwd)/bin:$PATH
 export PGHOST=localhost
 export PGPORT=5555
 
-export DATABASE_URL="postgres://skjera:skjera@localhost/skjera"
+export DATABASE_URL="postgres://skjera:skjera@localhost:5555/skjera"
