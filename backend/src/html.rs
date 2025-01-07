@@ -169,12 +169,14 @@ pub async fn add_some_account(
         let instance = None;
         let name = None;
         let avatar = None;
+        let authenticated = false;
+
         app.employee_dao
             .add_some_account(
                 user.employee,
                 network,
-                false,
                 instance,
+                authenticated,
                 None,
                 subject,
                 name,

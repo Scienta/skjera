@@ -82,8 +82,8 @@ impl EmployeeDao {
         &self,
         employee: EmployeeId,
         network: SomeNetwork,
-        authenticated: bool,
         network_instance: Option<String>,
+        authenticated: bool,
         network_avatar: Option<String>,
         subject: Option<String>,
         name: Option<String>,
@@ -93,13 +93,13 @@ impl EmployeeDao {
     ) -> Result<SomeAccount, Error> {
         sqlx::query_as!(
             SomeAccount,
-            "INSERT INTO skjera.some_account(employee, network, authenticated, network_instance, network_avatar, subject, name, nick, url, avatar)
+            "INSERT INTO skjera.some_account(employee, network, network_instance, authenticated, network_avatar, subject, name, nick, url, avatar)
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
              RETURNING *",
             employee.0,
             network.0,
-            authenticated,
             network_instance,
+            authenticated,
             network_avatar,
             subject,
             name,
@@ -122,6 +122,62 @@ impl EmployeeDao {
             employee_id.0,
         )
         .fetch_all(&self.pool)
+        .await
+    }
+
+    #[tracing::instrument]
+    pub(crate) async fn some_account_for_network(
+        &self,
+        employee_id: EmployeeId,
+        network: String,
+        network_instance: Option<String>,
+    ) -> Result<Option<SomeAccount>, Error> {
+        sqlx::query_as!(
+            SomeAccount,
+            "SELECT * FROM skjera.some_account WHERE employee=$1 AND network=$2 AND ((network_instance IS NULL AND $3::TEXT IS NULL) OR (network_instance=$3::TEXT))",
+            employee_id.0,
+            network,
+            network_instance,
+        )
+        .fetch_optional(&self.pool)
+        .await
+    }
+
+    #[tracing::instrument]
+    pub(crate) async fn update_some_account(
+        &self,
+        id: SomeAccountId,
+        authenticated: bool,
+        network_avatar: Option<String>,
+        subject: Option<String>,
+        name: Option<String>,
+        nick: Option<String>,
+        url: Option<String>,
+        avatar: Option<String>,
+    ) -> Result<SomeAccount, Error> {
+        sqlx::query_as!(
+            SomeAccount,
+            "UPDATE skjera.some_account
+            SET authenticated=$1,
+                network_avatar=$2,
+                subject=$3,
+                name=$4,
+                nick=$5,
+                url=$6,
+                avatar=$7
+            WHERE id = $8
+            RETURNING *;
+            ",
+            authenticated,
+            network_avatar,
+            subject,
+            name,
+            nick,
+            url,
+            avatar,
+            id.0,
+        )
+        .fetch_one(&self.pool)
         .await
     }
 

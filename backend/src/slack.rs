@@ -230,26 +230,66 @@ pub(crate) async fn oauth_slack(
 
     let authenticated = true;
 
-    app.employee_dao
-        .add_some_account(
+    let network = model::SLACK.to_owned();
+    let network_instance = user_info.additional_claims().clone().team_id;
+    let network_avatar = user_info.additional_claims().clone().team_image_230;
+    let subject = Some(user_info.subject().to_string());
+    let name = user_info
+        .name()
+        .and_then(|x| x.get(None).map(|x| x.to_string()));
+    let nick = user_info
+        .nickname()
+        .and_then(|x| x.get(None).map(|x| x.to_string()));
+    let avatar = user_info
+        .picture()
+        .and_then(|x| x.get(None).map(|x| x.to_string()));
+
+    let account = app
+        .employee_dao
+        .some_account_for_network(
             session.employee,
-            model::SLACK.to_owned(),
-            authenticated,
-            user_info.additional_claims().clone().team_id,
-            user_info.additional_claims().clone().team_image_230,
-            Some(user_info.subject().to_string()),
-            user_info
-                .name()
-                .and_then(|x| x.get(None).map(|x| x.to_string())),
-            user_info
-                .nickname()
-                .and_then(|x| x.get(None).map(|x| x.to_string())),
-            None,
-            user_info
-                .picture()
-                .and_then(|x| x.get(None).map(|x| x.to_string())),
+            network.to_string(),
+            network_instance.clone(),
         )
         .await?;
+    let account = match account {
+        Some(account) => {
+            info!(old_account = ?account, "Updating exising account");
+
+            app.employee_dao
+                .update_some_account(
+                    account.id,
+                    authenticated,
+                    network_avatar,
+                    subject,
+                    name,
+                    nick,
+                    None,
+                    avatar,
+                )
+                .await?
+        }
+        None => {
+            info!("Creating new account");
+
+            app.employee_dao
+                .add_some_account(
+                    session.employee,
+                    network.to_owned(),
+                    network_instance,
+                    authenticated,
+                    network_avatar,
+                    subject,
+                    name,
+                    nick,
+                    None,
+                    avatar,
+                )
+                .await?
+        }
+    };
+
+    info!(?account, "New/updated account");
 
     Ok(Redirect::to("/"))
 }
