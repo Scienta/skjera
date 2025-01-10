@@ -9,19 +9,13 @@ mod session;
 mod skjera;
 mod slack;
 mod web;
+mod logging;
 
 use crate::model::*;
 use crate::slack::SlackConnect;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Redirect, Response};
 use oauth2::basic::BasicClient;
-use opentelemetry::trace::TracerProvider as _;
-use opentelemetry::{global, KeyValue};
-use opentelemetry_appender_tracing::layer;
-use opentelemetry_otlp::{LogExporter, SpanExporter};
-use opentelemetry_sdk::logs::LoggerProvider;
-use opentelemetry_sdk::trace::TracerProvider;
-use opentelemetry_sdk::{runtime, Resource};
 use reqwest::Client as ReqwestClient;
 use sqlx::postgres::PgConnectOptions;
 use std::env;
@@ -32,8 +26,6 @@ use tower_http::trace::TraceLayer;
 use tower_sessions::cookie::SameSite::Lax;
 use tower_sessions::{MemoryStore, SessionManagerLayer, SessionStore};
 use tracing::{debug, info, warn};
-use tracing_subscriber::prelude::*;
-use tracing_subscriber::EnvFilter;
 
 #[tokio::main]
 async fn main() {
@@ -41,12 +33,12 @@ async fn main() {
     let env = dotenv::dotenv();
     let is_local = env.is_ok();
 
-    let providers = configure_logging();
-    if let Err(err) = providers {
+    let logging_subsystem = logging::configure_logging();
+    if let Err(err) = logging_subsystem {
         println!("{}", err);
         return;
     }
-    let providers = providers.unwrap();
+    let logging_subsystem = logging_subsystem.unwrap();
 
     warn!("skjera starting");
 
@@ -121,63 +113,7 @@ async fn main() {
 
     start_server(server_impl, session_layer, "0.0.0.0:8080").await;
 
-    providers.0.shutdown().unwrap();
-    providers.1.shutdown().unwrap();
-}
-
-fn configure_logging() -> Result<(TracerProvider, LoggerProvider), anyhow::Error> {
-    let resource = Resource::new(vec![KeyValue::new(
-        opentelemetry_semantic_conventions::resource::SERVICE_NAME,
-        env!("CARGO_CRATE_NAME"),
-    )]);
-
-    let span_exporter = SpanExporter::builder().with_tonic().build()?;
-
-    let tracer_provider = TracerProvider::builder()
-        .with_resource(resource.clone())
-        // .with_simple_exporter(span_exporter)
-        .with_batch_exporter(span_exporter, runtime::Tokio)
-        .build();
-
-    let tracer = tracer_provider.tracer("main");
-
-    global::set_tracer_provider(tracer_provider.clone());
-
-    let otel_tracing_layer = tracing_opentelemetry::layer().with_tracer(tracer);
-
-    let log_exporter = LogExporter::builder().with_tonic().build()?;
-
-    let logger_provider = LoggerProvider::builder()
-        .with_resource(resource)
-        // .with_simple_exporter(log_exporter)
-        .with_batch_exporter(log_exporter, runtime::Tokio)
-        .build();
-
-    let otel_layer = layer::OpenTelemetryTracingBridge::new(&logger_provider);
-
-    // Add a tracing filter to filter events from crates used by opentelemetry-otlp.
-    // The filter levels are set as follows:
-    // - Allow `info` level and above by default.
-    // - Restrict `hyper`, `tonic`, and `reqwest` to `error` level logs only.
-    // This ensures events generated from these crates within the OTLP Exporter are not looped back,
-    // thus preventing infinite event generation.
-    // Note: This will also drop events from these crates used outside the OTLP Exporter.
-    // For more details, see: https://github.com/open-telemetry/opentelemetry-rust/issues/761
-    let filter = EnvFilter::new("info")
-        .add_directive("hyper=error".parse()?)
-        .add_directive("tonic=error".parse()?)
-        .add_directive("reqwest=error".parse()?);
-
-    let filter = filter.add_directive(format!("{}=debug", env!("CARGO_CRATE_NAME")).parse()?);
-
-    tracing_subscriber::registry()
-        .with(filter)
-        .with(tracing_subscriber::fmt::layer())
-        .with(otel_layer)
-        .with(otel_tracing_layer)
-        .init();
-
-    Ok((tracer_provider, logger_provider))
+    logging_subsystem.shutdown().await;
 }
 
 #[derive(Clone, Debug)]

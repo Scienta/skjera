@@ -13,9 +13,16 @@ exporters:
 #  otlp:
 #    endpoint: otelcol:4317
   loki:
-    endpoint: ${env:LOKI_URL}
+    endpoint: ${env:COLLECTOR_LOKI_URL}
     auth:
       authenticator: bearertokenauth/scw
+
+  otlphttp/loki:
+    endpoint: ${env:LOKI_OLTP_URL}
+    auth:
+      authenticator: bearertokenauth/scw
+    encoding: json
+    compression: none
 
   otlphttp/tempo:
     endpoint: ${env:TEMPO_URL}
@@ -61,4 +68,5 @@ service:
 #        - batch
       exporters:
         - loki
+#        - otlphttp/loki
         - debug
