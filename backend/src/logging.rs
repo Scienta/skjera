@@ -15,11 +15,13 @@ use tracing_subscriber::EnvFilter;
 #[cfg(all(feature = "loki", feature = "otel"))]
 compile_error!("Features `loki` and `otel` cannot be enabled at the same time.");
 
+#[cfg(feature = "loki")]
 pub(crate) struct LokiLoggingSubsystem {
     tracer_provider: TracerProvider,
     controller: BackgroundTaskController,
     handle: JoinHandle<()>,
 }
+#[cfg(feature = "loki")]
 impl LokiLoggingSubsystem {
     pub(crate) async fn shutdown(self) {
         let _ = self.tracer_provider.shutdown();
@@ -29,7 +31,15 @@ impl LokiLoggingSubsystem {
 }
 
 #[cfg(feature = "otel")]
-struct OtelLoggingSubsystem {}
+struct OtelLoggingSubsystem {
+    logger_provider: LoggerProvider,
+}
+#[cfg(feature = "otel")]
+impl OtelLoggingSubsystem {
+    pub(crate) async fn shutdown(self) {
+        self.logger_provider.shutdown().await;
+    }
+}
 
 #[cfg(feature = "loki")]
 type LoggingSubsystem = LokiLoggingSubsystem;
@@ -57,17 +67,7 @@ pub(crate) fn configure_logging() -> Result<LoggingSubsystem, anyhow::Error> {
     let otel_tracing_layer = tracing_opentelemetry::layer().with_tracer(tracer);
 
     #[cfg(feature = "otel")]
-    let log_exporter = LogExporter::builder().with_tonic().build()?;
-
-    #[cfg(feature = "otel")]
-    let logger_provider = LoggerProvider::builder()
-        .with_resource(resource)
-        // .with_simple_exporter(log_exporter)
-        .with_batch_exporter(log_exporter, runtime::Tokio)
-        .build();
-
-    #[cfg(feature = "otel")]
-    let layer = layer::OpenTelemetryTracingBridge::new(&logger_provider);
+    let (logger_provider, layer) = configure_otel(resource)?;
 
     #[cfg(feature = "loki")]
     let (layer, controller, handle) = configure_loki()?;
@@ -94,6 +94,9 @@ pub(crate) fn configure_logging() -> Result<LoggingSubsystem, anyhow::Error> {
         .with(otel_tracing_layer)
         .init();
 
+    #[cfg(feature = "otel")]
+    let logging_subsystem = OtelLoggingSubsystem { logger_provider };
+
     #[cfg(feature = "loki")]
     let logging_subsystem = LokiLoggingSubsystem {
         tracer_provider,
@@ -102,6 +105,30 @@ pub(crate) fn configure_logging() -> Result<LoggingSubsystem, anyhow::Error> {
     };
 
     Ok(logging_subsystem)
+}
+
+#[cfg(feature = "otel")]
+fn configure_otel(
+    resource: Resource,
+) -> anyhow::Result<(
+    LoggerProvider,
+    OpenTelemetryTracingBridge<LoggerProvider, Logger>,
+)> {
+    use opentelemetry_appender_tracing::layer;
+
+    let log_exporter = opentelemetry_otlp::LogExporter::builder()
+        .with_tonic()
+        .build()?;
+
+    let logger_provider = opentelemetry_sdk::logs::LoggerProvider::builder()
+        .with_resource(resource)
+        // .with_simple_exporter(log_exporter)
+        .with_batch_exporter(log_exporter, runtime::Tokio)
+        .build();
+
+    let layer = layer::OpenTelemetryTracingBridge::new(&logger_provider);
+
+    Ok((logger_provider, layer))
 }
 
 #[cfg(feature = "loki")]

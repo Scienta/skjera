@@ -1,4 +1,5 @@
 mod html;
+mod logging;
 mod macros;
 #[cfg(any())]
 mod meta;
@@ -9,10 +10,10 @@ mod session;
 mod skjera;
 mod slack;
 mod web;
-mod logging;
 
 use crate::model::*;
 use crate::slack::SlackConnect;
+use anyhow::anyhow;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Redirect, Response};
 use oauth2::basic::BasicClient;
@@ -35,7 +36,7 @@ async fn main() {
 
     let logging_subsystem = logging::configure_logging();
     if let Err(err) = logging_subsystem {
-        println!("{}", err);
+        println!("error configuring logging {}", err);
         return;
     }
     let logging_subsystem = logging_subsystem.unwrap();
@@ -111,9 +112,15 @@ async fn main() {
         .with_http_only(true)
         .with_same_site(Lax);
 
-    start_server(server_impl, session_layer, "0.0.0.0:8080").await;
+    let r = start_server(server_impl, session_layer, "0.0.0.0:8080").await;
 
     logging_subsystem.shutdown().await;
+
+    if let Err(e) = r {
+        println!("error: {}", e);
+    } else {
+        println!("Normal exit");
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -136,7 +143,8 @@ async fn start_server<SS>(
     server_impl: ServerImpl,
     session_layer: SessionManagerLayer<SS>,
     addr: &str,
-) where
+) -> anyhow::Result<()>
+where
     SS: SessionStore + Clone,
 {
     let app = web::create_router(server_impl)
@@ -144,12 +152,13 @@ async fn start_server<SS>(
         .layer(TraceLayer::new_for_http());
 
     // Run the server with graceful shutdown
-    let listener = TcpListener::bind(addr).await.unwrap();
+    let listener = TcpListener::bind(addr).await?;
+
     info!("skjera is listening on {}", addr);
     axum::serve(listener, app)
         .with_graceful_shutdown(shutdown_signal())
         .await
-        .unwrap();
+        .map_err(|e| anyhow!("server error {}", e))
 }
 
 async fn shutdown_signal() {
