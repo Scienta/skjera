@@ -1,4 +1,4 @@
-ALTER TABLE some_account
+ALTER TABLE skjera.some_account
     ADD COLUMN network_instance TEXT,
     ADD COLUMN subject TEXT,
     ADD COLUMN name TEXT,

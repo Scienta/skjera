@@ -1,2 +1,2 @@
-ALTER TABLE some_account
+ALTER TABLE skjera.some_account
     DROP COLUMN authenticated;
