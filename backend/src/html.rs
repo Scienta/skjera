@@ -76,12 +76,13 @@ pub(crate) struct MeForm {
     dob_day: u8,
 }
 
-#[tracing::instrument]
 pub async fn post_me(
     State(app): State<ServerImpl>,
     user: SkjeraSessionData,
     Form(input): Form<MeForm>,
 ) -> Result<Redirect, AppError> {
+    let _span = span!(Level::INFO, "post_me");
+
     debug!("form: {:?}", input);
 
     let mut me = app

@@ -53,7 +53,9 @@ pub(crate) fn configure_logging() -> Result<LoggingSubsystem, anyhow::Error> {
         env!("CARGO_CRATE_NAME"),
     )]);
 
-    let span_exporter = SpanExporter::builder().with_tonic().build()?;
+    // let span_exporter = SpanExporter::builder().with_tonic().build()?;
+    // Scaleway only supports HTTP (need to test if protobuf is supported, or we need to use json).
+    let span_exporter = SpanExporter::builder().with_http().build()?;
 
     let tracer_provider = TracerProvider::builder()
         .with_resource(resource.clone())
