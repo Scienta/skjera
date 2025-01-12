@@ -34,10 +34,12 @@ async fn main() {
     let env = dotenv::dotenv();
     let is_local = env.is_ok();
 
+    println!("Configuring logging");
+
     let logging_subsystem = logging::configure_logging();
     if let Err(err) = logging_subsystem {
         println!("error configuring logging {}", err);
-        return;
+        exit(1)
     }
     let logging_subsystem = logging_subsystem.unwrap();
 
