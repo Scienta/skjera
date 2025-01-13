@@ -3,6 +3,7 @@ name = "skjera"
 version = "0.1.0"
 edition = "2021"
 
+
 [features]
 default = ["loki"]
 otel = []
@@ -41,3 +42,6 @@ tracing-opentelemetry = { version = "0.28.0", features = [] }
 tracing-loki = { version = "0.2.5", optional = true }
 tracing-subscriber = { version = "0.3.19", features = ["env-filter", "registry", "fmt"] }
 url = "2.5.4"
+
+[build-dependencies]
+build-data = "0.2.1"

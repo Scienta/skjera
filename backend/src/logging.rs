@@ -50,10 +50,10 @@ type LoggingSubsystem = LokiLoggingSubsystem;
 type LoggingSubsystem = OtelLoggingSubsystem;
 
 pub(crate) fn configure_logging() -> Result<LoggingSubsystem, anyhow::Error> {
-    let resource = Resource::new_with_defaults(vec![KeyValue::new(
-        semconv::resource::SERVICE_NAME,
-        env!("CARGO_CRATE_NAME"),
-    )]);
+    let resource = Resource::new_with_defaults(vec![
+        KeyValue::new(semconv::resource::SERVICE_NAME, env!("CARGO_CRATE_NAME")),
+        KeyValue::new(semconv::resource::SERVICE_VERSION, crate::VERSION_INFO),
+    ]);
 
     // let span_exporter = SpanExporter::builder().with_tonic().build()?;
     // Scaleway only supports HTTP (need to test if protobuf is supported, or we need to use json).
