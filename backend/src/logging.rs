@@ -1,8 +1,10 @@
+use once_cell::sync::Lazy;
 use opentelemetry::trace::TracerProvider as _;
-use opentelemetry::{global, KeyValue};
+use opentelemetry::{global, Key, KeyValue};
 use opentelemetry_otlp::SpanExporter;
 use opentelemetry_sdk::trace::TracerProvider;
 use opentelemetry_sdk::{runtime, Resource};
+use opentelemetry_semantic_conventions as semconv;
 use std::env;
 use tokio::task::JoinHandle;
 #[cfg(feature = "loki")]
@@ -48,8 +50,8 @@ type LoggingSubsystem = LokiLoggingSubsystem;
 type LoggingSubsystem = OtelLoggingSubsystem;
 
 pub(crate) fn configure_logging() -> Result<LoggingSubsystem, anyhow::Error> {
-    let resource = Resource::new(vec![KeyValue::new(
-        opentelemetry_semantic_conventions::resource::SERVICE_NAME,
+    let resource = Resource::new_with_defaults(vec![KeyValue::new(
+        semconv::resource::SERVICE_NAME,
         env!("CARGO_CRATE_NAME"),
     )]);
 
@@ -72,7 +74,7 @@ pub(crate) fn configure_logging() -> Result<LoggingSubsystem, anyhow::Error> {
     let (logger_provider, layer) = configure_otel(resource)?;
 
     #[cfg(feature = "loki")]
-    let (layer, controller, handle) = configure_loki()?;
+    let (layer, controller, handle) = configure_loki(&resource)?;
 
     // Add a tracing filter to filter events from crates used by opentelemetry-otlp.
     // The filter levels are set as follows:
@@ -133,15 +135,16 @@ fn configure_otel(
     Ok((logger_provider, layer))
 }
 
+static SERVICE_NAME: Lazy<Key> = Lazy::new(|| Key::from(semconv::resource::SERVICE_NAME));
+
 #[cfg(feature = "loki")]
-fn configure_loki() -> Result<
-    (
-        tracing_loki::Layer,
-        BackgroundTaskController,
-        JoinHandle<()>,
-    ),
-    anyhow::Error,
-> {
+fn configure_loki(
+    resource: &Resource,
+) -> anyhow::Result<(
+    tracing_loki::Layer,
+    BackgroundTaskController,
+    JoinHandle<()>,
+)> {
     use anyhow::anyhow;
     use std::process;
     use url::Url;
@@ -151,8 +154,13 @@ fn configure_loki() -> Result<
         .and_then(|s| Url::parse(s.as_str()).map_err(|_| anyhow!("Invalid LOKI_URL")))?;
     let loki_token = env::var("LOKI_TOKEN").ok();
 
+    let service_name = resource
+        .get(SERVICE_NAME.clone())
+        .ok_or(anyhow!("internal error"))?
+        .to_string();
+
     let mut b = tracing_loki::builder()
-        .label("host", "mine")?
+        .label(to_loki(SERVICE_NAME.clone()), service_name)?
         .extra_field("pid", format!("{}", process::id()))?;
 
     if let Some(loki_token) = loki_token {
@@ -165,4 +173,8 @@ fn configure_loki() -> Result<
     let handle = tokio::spawn(task);
 
     Ok((layer, controller, handle))
+}
+
+fn to_loki(key: Key) -> String {
+    key.to_string().replace(".", "_")
 }
