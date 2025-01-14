@@ -37,10 +37,12 @@ impl AdditionalClaims for SlackAdditionalClaims {}
 #[derive(Clone, Debug)]
 pub(crate) struct SlackConnect {
     client: CoreClient,
+    http_client: reqwest::Client,
 }
 
 impl SlackConnect {
     pub(crate) async fn new(
+        http_client: reqwest::Client,
         client_id: String,
         client_secret: String,
         redirect_url: String,
@@ -64,7 +66,10 @@ impl SlackConnect {
         )
         .set_redirect_uri(redirect_url.clone());
 
-        Ok(SlackConnect { client })
+        Ok(SlackConnect {
+            http_client,
+            client,
+        })
     }
 
     async fn slack_connect_begin(self: &Self) -> Result<(Url, CsrfToken, Nonce, PkceCodeVerifier)> {
@@ -113,10 +118,11 @@ impl SlackConnect {
         self: &Self,
         session: SlackConnectData,
         code: String,
-    ) -> Result<SlackUserInfoClaims> {
+    ) -> Result<(SlackUserInfoClaims, SlackUserProfile)> {
+        let _span = span!(Level::INFO, "slack_connect_continue");
         let pkce_verifier = PkceCodeVerifier::new(session.pkce_verifier);
 
-        let token_response = span!(Level::INFO, "slack_connect", function = "exchange_token")
+        let token_response = span!(Level::INFO, "exchange_token")
             .in_scope(|| async {
                 self.client
                     .exchange_code(AuthorizationCode::new(code))
@@ -155,7 +161,7 @@ impl SlackConnect {
         // The user_info request uses the AccessToken returned in the token response. To parse custom
         // claims, use UserInfoClaims directly (with the desired type parameters) rather than using the
         // CoreUserInfoClaims type alias.
-        let user_info = span!(Level::INFO, "slack_connect", function = "user_info")
+        let user_info = span!(Level::INFO, "user_info")
             .in_scope(|| async {
                 self.client
                     .user_info(token_response.access_token().to_owned(), None)
@@ -171,8 +177,47 @@ impl SlackConnect {
 
         info!("slack user info {:?}", user_info);
 
-        Ok(user_info)
+        let response = span!(Level::INFO, "users.profile.get")
+            .in_scope(|| async {
+                self.http_client
+                    .get("https://slack.com/api/users.profile.get")
+                    .bearer_auth(token_response.access_token().secret())
+                    .send()
+                    .await
+            })
+            .await?;
+
+        if response.status() != 200 {
+            return Err(anyhow!("non-200 response"));
+        }
+
+        let response = {
+            let response = response.text().await?;
+            info!("response: {:?}", response);
+            serde_json::from_str::<SlackResponse>(&response)?
+        };
+
+        if !response.ok {
+            return Err(anyhow!("non-ok response"));
+        }
+
+        let user_profile = response.profile.ok_or_else(|| anyhow!("bad response"))?;
+
+        info!("slack user profile {:?}", user_profile);
+
+        Ok((user_info, user_profile))
     }
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct SlackResponse {
+    ok: bool,
+    profile: Option<SlackUserProfile>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct SlackUserProfile {
+    display_name: String,
 }
 
 pub(crate) async fn oauth_slack_begin(
@@ -218,7 +263,7 @@ pub(crate) async fn oauth_slack(
         .slack_connect
         .ok_or_else(|| anyhow!("Not in a oauth process"))?;
 
-    let user_info = slack_connect
+    let (user_info, user_profile) = slack_connect
         .slack_connect_continue(slack_connect_data, query.code)
         .await?;
 
@@ -237,9 +282,8 @@ pub(crate) async fn oauth_slack(
     let name = user_info
         .name()
         .and_then(|x| x.get(None).map(|x| x.to_string()));
-    let nick = user_info
-        .nickname()
-        .and_then(|x| x.get(None).map(|x| x.to_string()));
+    let nick = user_profile
+        .display_name;
     let avatar = user_info
         .picture()
         .and_then(|x| x.get(None).map(|x| x.to_string()));
@@ -263,7 +307,7 @@ pub(crate) async fn oauth_slack(
                     network_avatar,
                     subject,
                     name,
-                    nick,
+                    Some(nick),
                     None,
                     avatar,
                 )
@@ -281,7 +325,7 @@ pub(crate) async fn oauth_slack(
                     network_avatar,
                     subject,
                     name,
-                    nick,
+                    Some(nick),
                     None,
                     avatar,
                 )

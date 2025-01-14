@@ -94,6 +94,7 @@ async fn main() {
 
     let slack_connect = match &cfg.slack_config {
         Some(sc) => SlackConnect::new(
+            ctx.clone(),
             sc.client_id.clone(),
             sc.client_secret.clone(),
             sc.redirect_url.clone(),
