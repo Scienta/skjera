@@ -2,6 +2,7 @@ use crate::model::Employee;
 use anyhow::{anyhow, Result};
 use async_openai::config::OpenAIConfig;
 use async_openai::types::*;
+use time::OffsetDateTime;
 use tracing::{info, instrument};
 
 type Client = async_openai::Client<OpenAIConfig>;
@@ -22,9 +23,22 @@ impl BirthdayBot {
 
     #[instrument(skip(self))]
     pub(crate) async fn create_message(self: &Self, e: &Employee) -> Result<String> {
+        let dob = e
+            .dob
+            .ok_or(anyhow!("Employee doesn't have an date of birth set"))?;
+
+        let (now_year, now_day) = OffsetDateTime::now_utc().to_ordinal_date();
+        let (dob_year, dob_day) = dob.to_ordinal_date();
+
+        let mut age = now_year - dob_year;
+
+        if now_day < dob_day {
+            age -= 1;
+        }
+
         let input = format!(
-            "Lag en morsom \"gratulerer med dagen\"-melding til {} som har bursdag i dag!",
-            e.name
+            "Det er {} som har bursdag i dag! Vedkommende blir {} år",
+            e.name, age
         );
 
         let (run, message) = self.run_message(input).await?;
