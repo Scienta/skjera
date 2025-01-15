@@ -3,7 +3,7 @@ use anyhow::{anyhow, Result};
 use async_openai::config::OpenAIConfig;
 use async_openai::types::*;
 use time::OffsetDateTime;
-use tracing::{info, instrument};
+use tracing::{info, info_span, instrument};
 
 type Client = async_openai::Client<OpenAIConfig>;
 
@@ -50,35 +50,50 @@ impl BirthdayBot {
 
     #[instrument(skip(self))]
     async fn run_message(self: &Self, input: String) -> Result<(RunObject, String)> {
-        let thread_request = CreateThreadRequestArgs::default().build()?;
-        let thread = self.client.threads().create(thread_request.clone()).await?;
+        let thread = {
+            let _span = info_span!("thread.create");
+
+            let thread_request = CreateThreadRequestArgs::default().build()?;
+
+            self.client.threads().create(thread_request.clone()).await?
+        };
 
         info!("Created thread {}", thread.id);
 
-        let message = CreateMessageRequestArgs::default()
-            .role(MessageRole::User)
-            .content(input.clone())
-            .build()?;
+        let message_obj = {
+            let _span = info_span!("threads.messages.create", thread_id = thread.id);
 
-        let _message_obj = self
-            .client
-            .threads()
-            .messages(&thread.id)
-            .create(message)
-            .await?;
+            let message = CreateMessageRequestArgs::default()
+                .role(MessageRole::User)
+                .content(input.clone())
+                .build()?;
 
-        info!("Created message {}", _message_obj.id);
+            self.client
+                .threads()
+                .messages(&thread.id)
+                .create(message)
+                .await?
+        };
 
-        let run_request = CreateRunRequestArgs::default()
-            .assistant_id(self.assistant_id.clone())
-            .build()?;
+        info!("Created message {}", message_obj.id);
 
-        let run = self
-            .client
-            .threads()
-            .runs(&thread.id)
-            .create(run_request)
-            .await?;
+        let run = {
+            let _span = info_span!(
+                "threads.runs.create",
+                thread_id = thread.id,
+                assistant_id = self.assistant_id
+            );
+
+            let run_request = CreateRunRequestArgs::default()
+                .assistant_id(self.assistant_id.clone())
+                .build()?;
+
+            self.client
+                .threads()
+                .runs(&thread.id)
+                .create(run_request)
+                .await?
+        };
 
         info!("Created run {}", run.id);
 
@@ -86,14 +101,16 @@ impl BirthdayBot {
 
         let mut err = None;
         while err.is_none() {
-            //retrieve the run
-            let run = self
-                .client
-                .threads()
-                .runs(&thread.id)
-                .retrieve(&run.id)
-                .await?;
-            //check the status of the run
+            let run = {
+                let _span = info_span!("thread.runs.retrieve", thread_id = thread.id, run = run.id);
+
+                self.client
+                    .threads()
+                    .runs(&thread.id)
+                    .retrieve(&run.id)
+                    .await?
+            };
+
             info!("run status: {:?}", run.status);
 
             match run.status {
@@ -136,7 +153,7 @@ impl BirthdayBot {
                 RunStatus::Incomplete => err = Some(anyhow!("run incomplete")),
             }
             //wait for 1 second before checking the status again
-            tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+            tokio::time::sleep(tokio::time::Duration::from_millis(250)).await;
         }
 
         // bot.client.threads().delete(&thread.id).await?;
