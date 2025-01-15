@@ -4,8 +4,16 @@
 
 {% block content %}
 <h1>Skjera - {{ employee.name }}</h1>
-Date of birth: {{ Self::dob(self) }}
 
+<p>
+    Date of birth: {{ Self::dob(self) }}
+</p>
+
+<p>
+    <a href="./{{ employee.id }}/create-message">Create AI message</a>
+</p>
+
+<h2>Social networks</h2>
 <table>
 <thead>
 <tr>

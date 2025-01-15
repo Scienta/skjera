@@ -1,7 +1,7 @@
 use crate::model::*;
 use crate::session::SkjeraSessionData;
 use crate::{AppError, ServerImpl};
-use anyhow::Context;
+use anyhow::{anyhow, Context};
 use askama_axum::Template;
 use axum::extract::{Path, State};
 use axum::response::{Html, Redirect};
@@ -41,7 +41,7 @@ struct MeTemplate<'a> {
     pub slack_url: Option<String>,
 }
 
-#[tracing::instrument]
+#[tracing::instrument(skip(app, user))]
 pub async fn get_me(
     State(app): State<ServerImpl>,
     user: SkjeraSessionData,
@@ -211,7 +211,7 @@ impl EmployeeTemplate {
     }
 }
 
-#[tracing::instrument]
+#[tracing::instrument(skip(app, _user))]
 pub async fn employee(
     State(app): State<ServerImpl>,
     _user: SkjeraSessionData,
@@ -234,6 +234,39 @@ pub async fn employee(
     };
 
     Ok(Html(template.render()?))
+}
+
+#[tracing::instrument(skip(app, _user))]
+pub async fn employee_create_message(
+    State(app): State<ServerImpl>,
+    _user: SkjeraSessionData,
+    Path(employee_id): Path<EmployeeId>,
+) -> Result<Html<String>, AppError> {
+    let employee = app
+        .employee_dao
+        .employee_by_id(employee_id)
+        .await?
+        .context("error loading employee")?;
+
+    let birthday_bot = app
+        .birthday_bot
+        .ok_or(anyhow!("birthday bot not configured"))?;
+
+    let message = birthday_bot.create_message(&employee).await?;
+
+    let template = EmployeeCreateMessageTemplate {
+        employee,
+        message: Some(message),
+    };
+
+    Ok(Html(template.render()?))
+}
+
+#[derive(Template)]
+#[template(path = "employee-message.html")]
+struct EmployeeCreateMessageTemplate {
+    employee: Employee,
+    message: Option<String>,
 }
 
 #[derive(Template)]

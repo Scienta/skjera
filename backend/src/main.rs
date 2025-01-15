@@ -1,3 +1,4 @@
+mod birthday_bot;
 mod html;
 mod logging;
 mod macros;
@@ -9,9 +10,10 @@ mod session;
 #[cfg(any())]
 mod skjera;
 mod slack;
-mod web;
 mod slack_client;
+mod web;
 
+use crate::birthday_bot::BirthdayBot;
 use crate::model::*;
 use crate::slack::SlackConnect;
 use anyhow::anyhow;
@@ -28,7 +30,6 @@ use tower_http::trace::TraceLayer;
 use tower_sessions::cookie::SameSite::Lax;
 use tower_sessions::{MemoryStore, SessionManagerLayer, SessionStore};
 use tracing::{debug, info, warn};
-
 // const GIT_BRANCH: &str = env!("GIT_BRANCH");
 // const GIT_COMMIT: &str = env!("GIT_COMMIT");
 // const GIT_DIRTY: &str = env!("GIT_DIRTY");
@@ -105,6 +106,10 @@ async fn main() {
         None => None,
     };
 
+    let birthday_bot = env::var("BIRTHDAY_BOT")
+        .ok()
+        .map(|assistant_id| BirthdayBot::new(async_openai::Client::new(), assistant_id));
+
     let server_impl = ServerImpl {
         pool: pool.clone(),
         assets_path,
@@ -113,6 +118,7 @@ async fn main() {
         basic_client,
         employee_dao: EmployeeDao::new(pool),
         slack_connect,
+        birthday_bot,
     };
 
     // let tracer = tracer("my_tracer");
@@ -138,7 +144,7 @@ async fn main() {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 struct ServerImpl {
     /// TODO: Figure out how to best handle the passing of the pool. Right now it is used inside
     /// EmployeeDao, but not anywhere else. I'm not sure if cloning the Pool is ok or not.
@@ -152,6 +158,7 @@ struct ServerImpl {
     basic_client: BasicClient,
     pub employee_dao: EmployeeDao,
     pub slack_connect: Option<SlackConnect>,
+    pub birthday_bot: Option<BirthdayBot>,
 }
 
 async fn start_server<SS>(

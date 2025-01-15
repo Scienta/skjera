@@ -16,6 +16,7 @@ loki = [
 anyhow = "1.0.95"
 askama = { version = "0.12.1", features = ["with-axum"] }
 askama_axum = "0.4.0"
+async-openai = { version = "0.27.1" }
 async-trait = "0.1.83"
 axum = { version = "0.8.1", features = ["macros"] }
 axum-extra = { version = "0.10.0", features = ["cookie", "multipart", "typed-header"] }

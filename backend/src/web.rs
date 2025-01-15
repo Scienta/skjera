@@ -21,6 +21,7 @@ pub(crate) fn create_router(app: ServerImpl) -> Router {
             post(html::delete_some_account),
         )
         .route("/employee/{employee_id}", get(html::employee))
+        .route("/employee/{employee_id}/create-message", get(html::employee_create_message))
         .route("/oauth/google", get(oauth_google))
         .route("/oauth/slack-begin", get(slack::oauth_slack_begin))
         .route("/oauth/slack", get(slack::oauth_slack))
