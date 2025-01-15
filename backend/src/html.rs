@@ -34,6 +34,7 @@ static MONTH_NAMES: Lazy<Vec<String>> = Lazy::new(|| {
 struct MeTemplate<'a> {
     pub month_names: &'a [String],
     pub days: Vec<i32>,
+    pub dob_year: usize,
     pub dob_month: usize,
     pub dob_day: usize,
     pub some_accounts: Vec<SomeAccount>,
@@ -61,6 +62,7 @@ pub async fn get_me(
     let template = MeTemplate {
         month_names: MONTH_NAMES.as_slice(),
         days: (1..31).collect::<Vec<i32>>(),
+        dob_year: me.dob.map(|d| d.year() as usize).unwrap_or_default(),
         dob_month: me.dob.map(|d| d.month() as usize).unwrap_or_default(),
         dob_day: me.dob.map(|d| d.day() as usize).unwrap_or_default(),
         some_accounts,
@@ -72,6 +74,7 @@ pub async fn get_me(
 
 #[derive(Deserialize, Debug)]
 pub(crate) struct MeForm {
+    dob_year: i32,
     dob_month: u8,
     dob_day: u8,
 }
@@ -91,7 +94,7 @@ pub async fn post_me(
         .await?
         .context("error loading me")?;
 
-    let year = me.dob.map(|dob| dob.year()).unwrap_or_else(|| 1900);
+    let year = input.dob_year;
     let month: Option<Month> = input.dob_month.try_into().ok();
 
     let dob: Option<Date> = match (month, input.dob_day) {
