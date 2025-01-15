@@ -10,6 +10,7 @@ mod session;
 mod skjera;
 mod slack;
 mod web;
+mod slack_client;
 
 use crate::model::*;
 use crate::slack::SlackConnect;

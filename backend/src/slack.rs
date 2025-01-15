@@ -1,6 +1,6 @@
 use crate::oauth::OauthResponse;
 use crate::session::{SkjeraSession, SkjeraSessionData, SlackConnectData};
-use crate::{model, AppError, ServerImpl};
+use crate::{model, slack_client, AppError, ServerImpl};
 use anyhow::{anyhow, Result};
 use axum::extract::{Query, State};
 use axum::response::Redirect;
@@ -18,6 +18,7 @@ use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
 use tracing::{debug, info, span, Level};
 use url::Url;
+use crate::slack_client::SlackUserProfile;
 
 type SlackUserInfoClaims = UserInfoClaims<SlackAdditionalClaims, CoreGenderClaim>;
 
@@ -177,47 +178,16 @@ impl SlackConnect {
 
         info!("slack user info {:?}", user_info);
 
-        let response = span!(Level::INFO, "users.profile.get")
-            .in_scope(|| async {
-                self.http_client
-                    .get("https://slack.com/api/users.profile.get")
-                    .bearer_auth(token_response.access_token().secret())
-                    .send()
-                    .await
-            })
-            .await?;
-
-        if response.status() != 200 {
-            return Err(anyhow!("non-200 response"));
-        }
-
-        let response = {
-            let response = response.text().await?;
-            info!("response: {:?}", response);
-            serde_json::from_str::<SlackResponse>(&response)?
-        };
-
-        if !response.ok {
-            return Err(anyhow!("non-ok response"));
-        }
-
-        let user_profile = response.profile.ok_or_else(|| anyhow!("bad response"))?;
+        let user_profile = slack_client::user_profile_get(
+            &self.http_client,
+            token_response.access_token().secret(),
+        )
+        .await?;
 
         info!("slack user profile {:?}", user_profile);
 
         Ok((user_info, user_profile))
     }
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-pub struct SlackResponse {
-    ok: bool,
-    profile: Option<SlackUserProfile>,
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-pub struct SlackUserProfile {
-    display_name: String,
 }
 
 pub(crate) async fn oauth_slack_begin(
@@ -282,8 +252,7 @@ pub(crate) async fn oauth_slack(
     let name = user_info
         .name()
         .and_then(|x| x.get(None).map(|x| x.to_string()));
-    let nick = user_profile
-        .display_name;
+    let nick = user_profile.display_name;
     let avatar = user_info
         .picture()
         .and_then(|x| x.get(None).map(|x| x.to_string()));
