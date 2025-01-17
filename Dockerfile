@@ -1,4 +1,8 @@
 # syntax=docker/dockerfile:1.7-labs
+
+#ARG OTEL_COL_VERSION=0.116.1
+#
+#FROM otel/opentelemetry-collector-contrib:${OTEL_COL_VERSION} AS otel-col
 FROM rust:1.83-bullseye AS builder
 
 ARG BUILD_ARGS=""
@@ -24,6 +28,7 @@ ARG DEBIAN_FRONTEND=noninteractive
 WORKDIR /app
 
 RUN apt-get update && apt-get install --no-install-recommends --yes ca-certificates
+#COPY --from=otel-col /otelcol-contrib /
 COPY --from=builder /builder/target/$TARGET_DIR/skjera /
 COPY --from=builder /builder/backend/assets ./assets
 
