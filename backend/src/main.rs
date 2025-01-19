@@ -15,17 +15,22 @@ mod web;
 
 use crate::birthday_bot::BirthdayBot;
 use crate::model::*;
+use crate::session::SkjeraSessionData;
 use crate::slack::SlackConnect;
 use anyhow::anyhow;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Redirect, Response};
+use axum::Router;
+use axum_login::{login_required, AuthManagerLayerBuilder};
 use oauth2::basic::BasicClient;
 use reqwest::Client as ReqwestClient;
 use sqlx::postgres::PgConnectOptions;
 use std::env;
+use std::path::Path;
 use std::process::exit;
 use tokio::net::TcpListener;
 use tokio::signal;
+use tower_http::services::ServeDir;
 use tower_http::trace::TraceLayer;
 use tower_sessions::cookie::SameSite::Lax;
 use tower_sessions::{MemoryStore, SessionManagerLayer, SessionStore};
@@ -161,26 +166,57 @@ struct ServerImpl {
     pub birthday_bot: Option<BirthdayBot>,
 }
 
+impl ServerImpl {
+    fn session_data(e: Employee) -> SkjeraSessionData {
+        SkjeraSessionData {
+            employee: e.id,
+            session_hash: Box::new(e.id.0.to_be_bytes()),
+            email: e.email,
+            name: e.name,
+            slack_connect: None,
+        }
+    }
+}
+
+pub(crate) type AuthSession = axum_login::AuthSession<ServerImpl>;
+
 async fn start_server<SS>(
     server_impl: ServerImpl,
     session_layer: SessionManagerLayer<SS>,
     addr: &str,
-) -> anyhow::Result<()>
+) -> anyhow::Result<(), AppError>
 where
     SS: SessionStore + Clone,
 {
-    let app = web::create_router(server_impl)
-        .layer(session_layer)
-        .layer(TraceLayer::new_for_http());
+    let assets_path = Path::new(&server_impl.assets_path);
+    let assets = Router::new().nest_service("/assets", ServeDir::new(assets_path));
+
+    let (public, private) = web::create_router();
+    let private = private.route_layer(login_required!(ServerImpl, login_url = "/login"));
+
+    let auth_layer = AuthManagerLayerBuilder::new(server_impl.clone(), session_layer).build();
+
+    let app = Router::new()
+        .merge(private)
+        .merge(public)
+        .layer(auth_layer)
+        .layer(TraceLayer::new_for_http())
+        .fallback_service(assets.clone())
+        .with_state(server_impl);
 
     // Run the server with graceful shutdown
-    let listener = TcpListener::bind(addr).await?;
+    let listener = TcpListener::bind(addr)
+        .await
+        .map_err(|e| anyhow!("could not listen on {}: {}", addr, e))
+        .map_err(AppError::Anyhow)?;
 
     info!("skjera is listening on {}", addr);
+    // let app = app.into_make_service();
     axum::serve(listener, app)
         .with_graceful_shutdown(shutdown_signal())
         .await
         .map_err(|e| anyhow!("server error {}", e))
+        .map_err(AppError::Anyhow)
 }
 
 async fn shutdown_signal() {
@@ -263,25 +299,29 @@ impl SlackConfig {
     }
 }
 
-#[derive(Debug)]
-struct AppError(anyhow::Error);
+#[derive(Debug, thiserror::Error)]
+pub enum AppError {
+    #[error(transparent)]
+    Reqwest(#[from] reqwest::Error),
+
+    #[error(transparent)]
+    Sqlx(#[from] sqlx::Error),
+
+    #[error(transparent)]
+    Anyhow(#[from] anyhow::Error),
+
+    #[error(transparent)]
+    Askama(#[from] askama_axum::Error),
+
+    #[error(transparent)]
+    Url(#[from] url::ParseError),
+}
 
 impl IntoResponse for AppError {
     fn into_response(self) -> Response {
-        tracing::error!("Application error: {:#}", self.0);
+        tracing::error!("Application error: {:#}", self);
 
         (StatusCode::INTERNAL_SERVER_ERROR, "Something went wrong").into_response()
-    }
-}
-
-// This enables using `?` on functions that return `Result<_, anyhow::Error>` to turn them into
-// `Result<_, AppError>`. That way you don't need to do that manually.
-impl<E> From<E> for AppError
-where
-    E: Into<anyhow::Error>,
-{
-    fn from(err: E) -> Self {
-        Self(err.into())
     }
 }
 

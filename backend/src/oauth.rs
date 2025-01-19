@@ -1,13 +1,22 @@
+use crate::html::UnauthorizedTemplate;
 use crate::model::Employee;
+use crate::session::SkjeraSessionData;
 use crate::{AppError, ServerImpl};
-use axum::extract::{Query, State};
-use axum::response::Redirect;
-use oauth2::basic::BasicClient;
+use anyhow::anyhow;
+use askama_axum::Template;
+use async_trait::async_trait;
+use axum::extract::Query;
+use axum::response::*;
+use axum::response::{Html, IntoResponse, Redirect, Response};
+use axum_login::{AuthnBackend, UserId};
+use http::StatusCode;
+use oauth2::basic::{BasicClient, BasicTokenResponse};
 use oauth2::reqwest::async_http_client;
-use oauth2::{AuthUrl, AuthorizationCode, ClientId, ClientSecret, RedirectUrl, TokenResponse, TokenUrl};
+use oauth2::{
+    AuthUrl, AuthorizationCode, ClientId, ClientSecret, RedirectUrl, TokenResponse, TokenUrl,
+};
 use serde::{Deserialize, Serialize};
 use tracing::{debug, info, span, Level};
-use crate::session::SkjeraSession;
 
 #[derive(Debug, Deserialize)]
 #[allow(dead_code)]
@@ -16,46 +25,33 @@ pub(crate) struct OauthResponse {
 }
 
 pub(crate) async fn oauth_google(
-    Query(query): Query<OauthResponse>,
-    State(app): State<ServerImpl>,
-    mut session: SkjeraSession,
-) -> Result<Redirect, AppError> {
+    Query(OauthResponse { code }): Query<OauthResponse>,
+    mut auth_session: crate::AuthSession,
+) -> Response {
     let _method = span!(Level::INFO, "oauth_google_inner");
 
-    let code = query.code;
     debug!("code: {}", code);
 
-    let token = {
-        let _span = span!(Level::DEBUG, "exchange_code");
-        app.basic_client
-            .exchange_code(AuthorizationCode::new(code))
-            .request_async(async_http_client)
-            .await?
+    let creds = SkjeraAuthnCredentials { code };
+
+    let user = match auth_session.authenticate(creds).await {
+        Ok(Some(user)) => user,
+        Ok(None) => {
+            let template = UnauthorizedTemplate {};
+
+            return (StatusCode::UNAUTHORIZED, Html(template.render().unwrap())).into_response();
+        }
+        Err(_) => return StatusCode::INTERNAL_SERVER_ERROR.into_response(),
     };
 
-    debug!("token: {:?}", token.scopes());
-
-    let profile = {
-        let _span = span!(Level::DEBUG, "userinfo");
-        app.ctx
-            .get("https://openidconnect.googleapis.com/v1/userinfo")
-            .bearer_auth(token.access_token().secret().to_owned())
-            .send()
-            .await?
-    };
-
-    // let profile_response = profile.text().await.unwrap();
-    // println!("UserProfile: {:?}", profile_response);
-    // let user_profile = serde_json::from_str::<UserProfile>(&profile_response).unwrap();
-
-    let user_profile = profile.json::<GoogleUserProfile>().await?;
-    info!("UserProfile: {:?}", user_profile);
-
-    let employee = load_or_create_employee(&app, &user_profile).await?;
-
-    session.mark_logged_in(employee.id, user_profile.email, user_profile.name).await?;
-
-    Ok(Redirect::to("/"))
+    match auth_session.login(&user).await {
+        Ok(()) => Redirect::to("/me").into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            AppError::Anyhow(anyhow!("Could not log in user: {}: {}", user.email, e)),
+        )
+            .into_response(),
+    }
 }
 
 async fn load_or_create_employee(
@@ -109,4 +105,85 @@ pub struct GoogleUserProfile {
     name: String,
     // given_name: Option<String>,
     // family_name: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct SkjeraAuthnCredentials {
+    pub code: String,
+    // pub old_state: CsrfToken,
+    // pub new_state: CsrfToken,
+}
+
+impl ServerImpl {
+    #[tracing::instrument(skip(self, creds))]
+    async fn exchange_code(
+        self: &Self,
+        creds: SkjeraAuthnCredentials,
+    ) -> anyhow::Result<BasicTokenResponse> {
+        self.basic_client
+            .exchange_code(AuthorizationCode::new(creds.code))
+            .request_async(async_http_client)
+            .await
+            .map_err(|e| anyhow!("Error exchanging oauth code: {}", e))
+    }
+
+    #[tracing::instrument(skip(self, token))]
+    async fn user_info(
+        self: &Self,
+        token: &BasicTokenResponse,
+    ) -> anyhow::Result<reqwest::Response> {
+        self.ctx
+            .get("https://openidconnect.googleapis.com/v1/userinfo")
+            .bearer_auth(token.access_token().secret().to_owned())
+            .send()
+            .await
+            .map_err(|e| anyhow!("Could not fetch userinfo: {}", e))
+    }
+}
+
+#[async_trait]
+impl AuthnBackend for ServerImpl {
+    type User = SkjeraSessionData;
+    type Credentials = SkjeraAuthnCredentials;
+    type Error = AppError;
+
+    async fn authenticate(
+        &self,
+        creds: Self::Credentials,
+    ) -> Result<Option<Self::User>, Self::Error> {
+        let token = self.exchange_code(creds).await?;
+
+        debug!("token: {:?}", token.scopes());
+
+        let profile = self.user_info(&token).await?;
+
+        // let profile_response = profile.text().await.unwrap();
+        // println!("UserProfile: {:?}", profile_response);
+        // let user_profile = serde_json::from_str::<UserProfile>(&profile_response).unwrap();
+
+        let user_profile = profile
+            .json::<GoogleUserProfile>()
+            .await
+            .map_err(AppError::Reqwest)?;
+        info!("UserProfile: {:?}", user_profile);
+
+        let employee = load_or_create_employee(self, &user_profile).await?;
+
+        // session
+        //     .mark_logged_in(employee.id, user_profile.email, user_profile.name)
+        //     .await?;
+
+        Ok(Some(Self::session_data(employee)))
+    }
+
+    async fn get_user(&self, user_id: &UserId<Self>) -> Result<Option<Self::User>, Self::Error> {
+        // TODO: fix this
+        let user = self
+            .employee_dao
+            .employee_by_id(*user_id)
+            .await?
+            .map(Self::session_data);
+
+        Ok(user)
+    }
 }

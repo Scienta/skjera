@@ -1,6 +1,6 @@
 use crate::model::*;
 use crate::session::SkjeraSessionData;
-use crate::{AppError, ServerImpl};
+use crate::{AppError, AuthSession, ServerImpl};
 use anyhow::{anyhow, Context};
 use askama_axum::Template;
 use axum::extract::{Path, State};
@@ -42,18 +42,27 @@ struct MeTemplate<'a> {
     pub slack_url: Option<String>,
 }
 
-#[tracing::instrument(skip(app, user))]
+#[axum::debug_handler]
+#[tracing::instrument(skip(app, session))]
 pub async fn get_me(
     State(app): State<ServerImpl>,
-    user: SkjeraSessionData,
+    session: AuthSession,
 ) -> Result<Html<String>, AppError> {
+    let user = session.user.unwrap();
+
     let me = app
         .employee_dao
-        .employee_by_email(user.email)
-        .await?
-        .context("error loading me")?;
+        .employee_by_email(user.email.clone())
+        .await
+        .map_err(AppError::Sqlx)?
+        .ok_or_else(|| anyhow!("No such user: {}", user.email))
+        .map_err(AppError::Anyhow)?;
 
-    let some_accounts = app.employee_dao.some_accounts_by_employee(me.id).await?;
+    let some_accounts = app
+        .employee_dao
+        .some_accounts_by_employee(me.id)
+        .await
+        .map_err(AppError::Sqlx)?;
 
     // let slack_url = app.slack_connect
     //     .and_then(|slack_connect| slack_connect.slack_url().ok());
@@ -81,10 +90,12 @@ pub(crate) struct MeForm {
 
 pub async fn post_me(
     State(app): State<ServerImpl>,
-    user: SkjeraSessionData,
+    session: AuthSession,
     Form(input): Form<MeForm>,
 ) -> Result<Redirect, AppError> {
     let _span = span!(Level::INFO, "post_me");
+
+    let user = session.user.unwrap();
 
     debug!("form: {:?}", input);
 
@@ -113,9 +124,11 @@ pub async fn post_me(
 
 pub async fn delete_some_account(
     State(app): State<ServerImpl>,
-    user: SkjeraSessionData,
+    session: AuthSession,
     Path(some_account_id): Path<SomeAccountId>,
 ) -> Result<Redirect, AppError> {
+    let user = session.user.unwrap();
+
     info!(
         "some_account_id" = some_account_id.0,
         "Deleting some account"
@@ -142,10 +155,12 @@ pub(crate) struct AddSomeAccountForm {
 
 pub async fn add_some_account(
     State(app): State<ServerImpl>,
-    user: SkjeraSessionData,
+    session: AuthSession,
     Form(input): Form<AddSomeAccountForm>,
 ) -> Result<Redirect, AppError> {
     let _span = span!(Level::INFO, "add_some_account");
+
+    let user = session.user.unwrap();
 
     info!("input" = ?input, "Adding some account");
 
@@ -214,10 +229,9 @@ impl EmployeeTemplate {
     }
 }
 
-#[tracing::instrument(skip(app, _user))]
+#[tracing::instrument(skip(app))]
 pub async fn employee(
     State(app): State<ServerImpl>,
-    _user: SkjeraSessionData,
     Path(employee_id): Path<EmployeeId>,
 ) -> Result<Html<String>, AppError> {
     let employee = app
@@ -239,10 +253,9 @@ pub async fn employee(
     Ok(Html(template.render()?))
 }
 
-#[tracing::instrument(skip(app, _user))]
+#[tracing::instrument(skip(app))]
 pub async fn employee_create_message(
     State(app): State<ServerImpl>,
-    _user: SkjeraSessionData,
     Path(employee_id): Path<EmployeeId>,
 ) -> Result<Html<String>, AppError> {
     let employee = app
@@ -275,14 +288,14 @@ struct EmployeeCreateMessageTemplate {
 #[derive(Template)]
 #[template(path = "hello.html"/*, print = "all"*/)]
 struct HelloTemplate {
-    pub user: SkjeraSessionData,
+    pub user: Option<SkjeraSessionData>,
     pub google_auth_url: Option<String>,
     pub employees: Option<Vec<Employee>>,
 }
 
 pub async fn hello_world(
     State(app): State<ServerImpl>,
-    session: SkjeraSessionData,
+    session: AuthSession,
 ) -> Result<Html<String>, AppError> {
     let _span = span!(Level::INFO, "hello_world");
 
@@ -290,7 +303,7 @@ pub async fn hello_world(
 
     let mut employees = None::<Vec<Employee>>;
     let mut url = None::<String>;
-    if session.authenticated() {
+    if session.user.is_some() {
         employees = Some(app.employee_dao.employees().await?);
     } else {
         let u = Url::parse_with_params(
@@ -302,15 +315,19 @@ pub async fn hello_world(
                 ("redirect_uri", &app.cfg.redirect_url),
             ],
         )?
-        .to_string();
+            .to_string();
         url = Some(u);
     }
 
     let template = HelloTemplate {
-        user: session,
+        user: session.user,
         google_auth_url: url,
         employees,
     };
 
     Ok(Html(template.render()?))
 }
+
+#[derive(Template)]
+#[template(path = "unauthorized.html")]
+pub(crate) struct UnauthorizedTemplate {}

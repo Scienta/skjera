@@ -3,7 +3,7 @@
 {% block title %}Skjera?!{% endblock %}
 
 {% block content %}
-{% if user.authenticated() %}
+{% if let Some(user) = user %}
 <p>
     Hello {{ user.name }}!
 </p>

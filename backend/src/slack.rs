@@ -1,6 +1,7 @@
 use crate::oauth::OauthResponse;
-use crate::session::{SkjeraSession, SkjeraSessionData, SlackConnectData};
-use crate::{model, slack_client, AppError, ServerImpl};
+use crate::session::SlackConnectData;
+use crate::slack_client::SlackUserProfile;
+use crate::{model, slack_client, AppError, AuthSession, ServerImpl};
 use anyhow::{anyhow, Result};
 use axum::extract::{Query, State};
 use axum::response::Redirect;
@@ -18,7 +19,6 @@ use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
 use tracing::{debug, info, span, Level};
 use url::Url;
-use crate::slack_client::SlackUserProfile;
 
 type SlackUserInfoClaims = UserInfoClaims<SlackAdditionalClaims, CoreGenderClaim>;
 
@@ -192,7 +192,8 @@ impl SlackConnect {
 
 pub(crate) async fn oauth_slack_begin(
     State(app): State<ServerImpl>,
-    mut session: SkjeraSession,
+    // mut session: SkjeraSession,
+    session: AuthSession,
 ) -> std::result::Result<Redirect, AppError> {
     let _method = span!(Level::INFO, "oauth_slack_begin");
 
@@ -211,8 +212,9 @@ pub(crate) async fn oauth_slack_begin(
     );
 
     session
-        .with_slack_connect(csrf_token, nonce, pkce_verifier)
-        .await?;
+        .user
+        .unwrap()
+        .with_slack_connect(csrf_token, nonce, pkce_verifier);
 
     Ok(Redirect::to(auth_url.as_str()))
 }
@@ -220,8 +222,10 @@ pub(crate) async fn oauth_slack_begin(
 pub(crate) async fn oauth_slack(
     State(app): State<ServerImpl>,
     Query(query): Query<OauthResponse>,
-    session: SkjeraSessionData,
+    s: AuthSession,
 ) -> std::result::Result<Redirect, AppError> {
+    let session = s.user.unwrap();
+
     let _method = span!(Level::INFO, "oauth_slack");
 
     let slack_connect = app
