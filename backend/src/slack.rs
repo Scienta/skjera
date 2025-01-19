@@ -224,7 +224,7 @@ pub(crate) async fn oauth_slack(
     Query(query): Query<OauthResponse>,
     s: AuthSession,
 ) -> std::result::Result<Redirect, AppError> {
-    let session = s.user.unwrap();
+    let mut session = s.user.unwrap();
 
     let _method = span!(Level::INFO, "oauth_slack");
 
@@ -235,6 +235,7 @@ pub(crate) async fn oauth_slack(
 
     let slack_connect_data = session
         .slack_connect
+        .take()
         .ok_or_else(|| anyhow!("Not in a oauth process"))?;
 
     let (user_info, user_profile) = slack_connect

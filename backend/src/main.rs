@@ -35,14 +35,11 @@ use tower_http::trace::TraceLayer;
 use tower_sessions::cookie::SameSite::Lax;
 use tower_sessions::{MemoryStore, SessionManagerLayer, SessionStore};
 use tracing::{debug, info, warn};
-// const GIT_BRANCH: &str = env!("GIT_BRANCH");
-// const GIT_COMMIT: &str = env!("GIT_COMMIT");
-// const GIT_DIRTY: &str = env!("GIT_DIRTY");
-// SOURCE_TIMESTAMP doesn't work on my machine: https://gitlab.com/leonhard-llc/ops/-/issues/18
-// const SOURCE_TIMESTAMP: &str = env!("SOURCE_TIMESTAMP");
 
-// const VERSION_INFO: &str = concat!("{}{}", env!("GIT_COMMIT"), D);
 const VERSION_INFO: &str = env!("VERSION_INFO");
+
+pub(crate) type AuthSession = axum_login::AuthSession<ServerImpl>;
+const LOGIN_PATH: &'static str = "/login";
 
 #[tokio::main]
 async fn main() {
@@ -177,10 +174,6 @@ impl ServerImpl {
         }
     }
 }
-
-pub(crate) type AuthSession = axum_login::AuthSession<ServerImpl>;
-
-const LOGIN_PATH: &'static str = "/login";
 
 async fn start_server<SS>(
     server_impl: ServerImpl,
