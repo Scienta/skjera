@@ -10,13 +10,11 @@
 <p>
     Edit your profile <a href="/me">here</a>.
 </p>
-{% endif %}
-
-{% if let Some(google_auth_url) = self.google_auth_url %}
 <p>
-    <a href="{{ google_auth_url }}">Click here to log in</a>
+    <a href="/logout">logout</a>.
 </p>
 {% endif %}
+
 {% if let Some(employees) = self.employees %}
 <h2>Employees</h2>
 <table>

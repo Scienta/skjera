@@ -4,12 +4,12 @@ use crate::{AppError, AuthSession, ServerImpl};
 use anyhow::{anyhow, Context};
 use askama_axum::Template;
 use axum::extract::{Path, State};
-use axum::response::{Html, Redirect};
+use axum::response::{Html, IntoResponse, Redirect, Response};
 use axum::Form;
 use once_cell::sync::Lazy;
 use serde::Deserialize;
 use time::{format_description, Date, Month};
-use tracing::{debug, info, span, Level};
+use tracing::{debug, info, instrument, span, Level};
 use url::Url;
 
 static MONTH_NAMES: Lazy<Vec<String>> = Lazy::new(|| {
@@ -289,43 +289,74 @@ struct EmployeeCreateMessageTemplate {
 #[template(path = "hello.html"/*, print = "all"*/)]
 struct HelloTemplate {
     pub user: Option<SkjeraSessionData>,
-    pub google_auth_url: Option<String>,
     pub employees: Option<Vec<Employee>>,
 }
 
 pub async fn hello_world(
     State(app): State<ServerImpl>,
     session: AuthSession,
-) -> Result<Html<String>, AppError> {
+) -> Result<Response, AppError> {
     let _span = span!(Level::INFO, "hello_world");
 
-    let scope = "openid profile email";
+    if session.user.is_none() {
+        return Ok(Redirect::to(crate::LOGIN_PATH).into_response());
+    }
 
     let mut employees = None::<Vec<Employee>>;
-    let mut url = None::<String>;
     if session.user.is_some() {
         employees = Some(app.employee_dao.employees().await?);
-    } else {
-        let u = Url::parse_with_params(
-            "https://accounts.google.com/o/oauth2/v2/auth",
-            &[
-                ("scope", scope),
-                ("client_id", &app.cfg.client_id),
-                ("response_type", "code"),
-                ("redirect_uri", &app.cfg.redirect_url),
-            ],
-        )?
-            .to_string();
-        url = Some(u);
     }
 
     let template = HelloTemplate {
         user: session.user,
-        google_auth_url: url,
         employees,
     };
 
+    Ok(Html(template.render()?).into_response())
+}
+
+#[derive(Template)]
+#[template(path = "login.html")]
+pub(crate) struct LoginTemplate {
+    pub google_auth_url: String,
+}
+
+#[instrument(skip(app, session))]
+pub async fn login(
+    State(app): State<ServerImpl>,
+    mut session: AuthSession,
+) -> Result<Html<String>, AppError> {
+    let _ = session.logout().await;
+
+    let scope = "openid profile email";
+
+    let u = Url::parse_with_params(
+        "https://accounts.google.com/o/oauth2/v2/auth",
+        &[
+            ("scope", scope),
+            ("client_id", &app.cfg.client_id),
+            ("response_type", "code"),
+            ("redirect_uri", &app.cfg.redirect_url),
+        ],
+    )?;
+
+    let template = LoginTemplate {
+        google_auth_url: u.to_string(),
+    };
+
     Ok(Html(template.render()?))
+}
+
+#[instrument(skip(session))]
+pub async fn logout(
+    mut session: AuthSession,
+) -> Result<Redirect, AppError> {
+    let _ = session
+        .logout()
+        .await
+        .map_err(|e| anyhow!("Could not log out: {}", e))?;
+
+    Ok(Redirect::to("/"))
 }
 
 #[derive(Template)]

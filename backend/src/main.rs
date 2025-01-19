@@ -180,6 +180,8 @@ impl ServerImpl {
 
 pub(crate) type AuthSession = axum_login::AuthSession<ServerImpl>;
 
+const LOGIN_PATH: &'static str = "/login";
+
 async fn start_server<SS>(
     server_impl: ServerImpl,
     session_layer: SessionManagerLayer<SS>,
@@ -192,7 +194,7 @@ where
     let assets = Router::new().nest_service("/assets", ServeDir::new(assets_path));
 
     let (public, private) = web::create_router();
-    let private = private.route_layer(login_required!(ServerImpl, login_url = "/login"));
+    let private = private.route_layer(login_required!(ServerImpl, login_url = LOGIN_PATH));
 
     let auth_layer = AuthManagerLayerBuilder::new(server_impl.clone(), session_layer).build();
 

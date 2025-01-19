@@ -6,6 +6,8 @@ use axum::Router;
 pub(crate) fn create_router() -> (Router<ServerImpl>, Router<ServerImpl>) {
     let public = Router::new()
         .route("/", get(html::hello_world))
+        .route("/login", get(html::login))
+        .route("/logout", get(html::logout))
         .route("/oauth/google", get(oauth_google));
 
     let private = Router::new()
