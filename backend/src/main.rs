@@ -21,11 +21,11 @@ use axum::Router;
 use axum_login::{login_required, AuthManagerLayerBuilder};
 use oauth2::basic::BasicClient;
 use reqwest::Client as ReqwestClient;
+use slack_morphism::{SlackApiToken, SlackSigningSecret};
 use sqlx::postgres::PgConnectOptions;
 use std::env;
 use std::path::Path;
 use std::process::exit;
-use slack_morphism::SlackSigningSecret;
 use tokio::net::TcpListener;
 use tokio::signal;
 use tower_http::services::ServeDir;
@@ -264,10 +264,21 @@ impl Config {
             env::var("SLACK_CLIENT_SECRET"),
             env::var("SLACK_REDIRECT_URL"),
             env::var("SLACK_SIGNING_SECRET"),
+            env::var("SLACK_BOT_TOKEN"),
         ) {
-            (Ok(client_id), Ok(client_secret), Ok(redirect_url), Ok(signing_secret)) => Some(
-                SlackConfig::new(client_id, client_secret, redirect_url, signing_secret.into()),
-            ),
+            (
+                Ok(client_id),
+                Ok(client_secret),
+                Ok(redirect_url),
+                Ok(signing_secret),
+                Ok(bot_token),
+            ) => Some(SlackConfig::new(
+                client_id,
+                client_secret,
+                redirect_url,
+                signing_secret.into(),
+                SlackApiToken::new(bot_token.into()),
+            )),
             _ => None,
         };
 
@@ -286,6 +297,7 @@ struct SlackConfig {
     client_secret: String,
     redirect_url: String,
     signing_secret: SlackSigningSecret,
+    bot_token: SlackApiToken,
 }
 
 impl SlackConfig {
@@ -294,12 +306,14 @@ impl SlackConfig {
         client_secret: String,
         redirect_url: String,
         signing_secret: SlackSigningSecret,
+        bot_token: SlackApiToken,
     ) -> Self {
         Self {
             client_id,
             client_secret,
             redirect_url,
             signing_secret,
+            bot_token,
         }
     }
 }
