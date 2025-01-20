@@ -1,14 +1,17 @@
-use crate::oauth::oauth_google;
-use crate::{html, slack, ServerImpl};
+use crate::web::slack::slack_event;
+use crate::web::oauth::oauth_google;
+use crate::ServerImpl;
 use axum::routing::{get, post};
 use axum::Router;
+use crate::web::{html, slack};
 
 pub(crate) fn create_router() -> (Router<ServerImpl>, Router<ServerImpl>) {
     let public = Router::new()
         .route("/", get(html::hello_world))
         .route("/login", get(html::login))
         .route("/logout", get(html::logout))
-        .route("/oauth/google", get(oauth_google));
+        .route("/oauth/google", get(oauth_google))
+        .route("/api/slack-event", post(slack_event));
 
     let private = Router::new()
         .route("/me", get(html::get_me))

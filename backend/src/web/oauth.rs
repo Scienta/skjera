@@ -1,4 +1,4 @@
-use crate::html::UnauthorizedTemplate;
+use crate::web::html::UnauthorizedTemplate;
 use crate::model::Employee;
 use crate::session::SkjeraSessionData;
 use crate::{AppError, ServerImpl};

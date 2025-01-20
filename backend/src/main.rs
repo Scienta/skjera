@@ -1,22 +1,20 @@
 mod birthday_bot;
-mod html;
 mod logging;
 mod macros;
 #[cfg(any())]
 mod meta;
 mod model;
-mod oauth;
 mod session;
 #[cfg(any())]
 mod skjera;
-mod slack;
 mod slack_client;
 mod web;
 
+use crate::web::web::create_router;
 use crate::birthday_bot::BirthdayBot;
 use crate::model::*;
 use crate::session::SkjeraSessionData;
-use crate::slack::SlackConnect;
+use web::slack::SlackConnect;
 use anyhow::anyhow;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Redirect, Response};
@@ -35,6 +33,7 @@ use tower_http::trace::TraceLayer;
 use tower_sessions::cookie::SameSite::Lax;
 use tower_sessions::{MemoryStore, SessionManagerLayer, SessionStore};
 use tracing::{debug, info, warn};
+use web::oauth;
 
 const VERSION_INFO: &str = env!("VERSION_INFO");
 
@@ -186,7 +185,7 @@ where
     let assets_path = Path::new(&server_impl.assets_path);
     let assets = Router::new().nest_service("/assets", ServeDir::new(assets_path));
 
-    let (public, private) = web::create_router();
+    let (public, private) = create_router();
     let private = private.route_layer(login_required!(ServerImpl, login_url = LOGIN_PATH));
 
     let auth_layer = AuthManagerLayerBuilder::new(server_impl.clone(), session_layer).build();

@@ -1,10 +1,13 @@
-use crate::oauth::OauthResponse;
 use crate::session::SlackConnectData;
 use crate::slack_client::SlackUserProfile;
+use crate::web::oauth::OauthResponse;
 use crate::{model, slack_client, AppError, AuthSession, ServerImpl};
 use anyhow::{anyhow, Result};
+use axum::extract::Json;
 use axum::extract::{Query, State};
 use axum::response::Redirect;
+use axum::response::{IntoResponse, Response};
+use http::StatusCode;
 use oauth2::{HttpRequest, HttpResponse, PkceCodeVerifier};
 use openidconnect::core::{
     CoreAuthenticationFlow, CoreClient, CoreGenderClaim, CoreProviderMetadata,
@@ -17,7 +20,7 @@ use openidconnect::{
 };
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
-use tracing::{debug, info, span, Level};
+use tracing::{debug, info, instrument, span, Level};
 use url::Url;
 
 type SlackUserInfoClaims = UserInfoClaims<SlackAdditionalClaims, CoreGenderClaim>;
@@ -192,7 +195,6 @@ impl SlackConnect {
 
 pub(crate) async fn oauth_slack_begin(
     State(app): State<ServerImpl>,
-    // mut session: SkjeraSession,
     session: AuthSession,
 ) -> std::result::Result<Redirect, AppError> {
     let _method = span!(Level::INFO, "oauth_slack_begin");
@@ -310,4 +312,25 @@ pub(crate) async fn oauth_slack(
     info!(?account, "New/updated account");
 
     Ok(Redirect::to("/"))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SlackEvent {
+    token: String,
+    pub(crate) challenge: Option<String>,
+    #[serde(rename = "type")]
+    type_: String,
+}
+
+#[instrument]
+pub(crate) async fn slack_event(Json(event): Json<SlackEvent>) -> Response {
+    // TODO: verify token
+    info!("Received slack event: {:?}", event.token); // To silence unused field warning
+
+    use crate::web::slack_bot::*;
+
+    match event.type_.as_str() {
+        "url_verification" => url_verification(event),
+        _ => (StatusCode::UNPROCESSABLE_ENTITY, "Unsupported type").into_response(),
+    }
 }
