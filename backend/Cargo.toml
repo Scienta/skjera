@@ -32,8 +32,10 @@ opentelemetry-otlp = { version = "0.27.0", features = ["tracing", "metrics", "lo
 opentelemetry-semantic-conventions = { version = "0.27.0" }
 opentelemetry_sdk = { version = "0.27.1", features = ["tracing", "logs", "rt-tokio", ] }
 reqwest = { version = "0.11.27", features = ["json"] }
+rustls = { version = "0.23.21" }
 serde = { version = "1.0.217", features = ["derive"] }
 serde_json = "1.0.135"
+slack-morphism = { version = "2.8.0", features = ["hyper", "axum"] }
 sqlx = { version = "0.8.3", features = ["runtime-tokio-native-tls", "sqlite", "postgres", "time", "uuid"] }
 thiserror = "1.0.69"
 time = "0.3.37"

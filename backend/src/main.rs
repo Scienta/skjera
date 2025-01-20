@@ -10,11 +10,10 @@ mod skjera;
 mod slack_client;
 mod web;
 
-use crate::web::web::create_router;
 use crate::birthday_bot::BirthdayBot;
 use crate::model::*;
 use crate::session::SkjeraSessionData;
-use web::slack::SlackConnect;
+use crate::web::web::create_router;
 use anyhow::anyhow;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Redirect, Response};
@@ -26,6 +25,7 @@ use sqlx::postgres::PgConnectOptions;
 use std::env;
 use std::path::Path;
 use std::process::exit;
+use slack_morphism::SlackSigningSecret;
 use tokio::net::TcpListener;
 use tokio::signal;
 use tower_http::services::ServeDir;
@@ -34,6 +34,7 @@ use tower_sessions::cookie::SameSite::Lax;
 use tower_sessions::{MemoryStore, SessionManagerLayer, SessionStore};
 use tracing::{debug, info, warn};
 use web::oauth;
+use web::slack::SlackConnect;
 
 const VERSION_INFO: &str = env!("VERSION_INFO");
 
@@ -73,6 +74,8 @@ async fn main() {
     info!("DATABASE_URL: {:?}", &options);
 
     debug!("DEBUG");
+
+    let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
 
     // match run_migrations(options.clone()).await {
     //     Ok(_) => info!("migrations applies"),
@@ -185,7 +188,7 @@ where
     let assets_path = Path::new(&server_impl.assets_path);
     let assets = Router::new().nest_service("/assets", ServeDir::new(assets_path));
 
-    let (public, private) = create_router();
+    let (public, private) = create_router(&server_impl.cfg)?;
     let private = private.route_layer(login_required!(ServerImpl, login_url = LOGIN_PATH));
 
     let auth_layer = AuthManagerLayerBuilder::new(server_impl.clone(), session_layer).build();
@@ -260,10 +263,11 @@ impl Config {
             env::var("SLACK_CLIENT_ID"),
             env::var("SLACK_CLIENT_SECRET"),
             env::var("SLACK_REDIRECT_URL"),
+            env::var("SLACK_SIGNING_SECRET"),
         ) {
-            (Ok(client_id), Ok(client_secret), Ok(redirect_url)) => {
-                Some(SlackConfig::new(client_id, client_secret, redirect_url))
-            }
+            (Ok(client_id), Ok(client_secret), Ok(redirect_url), Ok(signing_secret)) => Some(
+                SlackConfig::new(client_id, client_secret, redirect_url, signing_secret.into()),
+            ),
             _ => None,
         };
 
@@ -281,14 +285,21 @@ struct SlackConfig {
     client_id: String,
     client_secret: String,
     redirect_url: String,
+    signing_secret: SlackSigningSecret,
 }
 
 impl SlackConfig {
-    fn new(client_id: String, client_secret: String, redirect_url: String) -> Self {
+    fn new(
+        client_id: String,
+        client_secret: String,
+        redirect_url: String,
+        signing_secret: SlackSigningSecret,
+    ) -> Self {
         Self {
             client_id,
             client_secret,
             redirect_url,
+            signing_secret,
         }
     }
 }
