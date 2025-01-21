@@ -1,4 +1,5 @@
 mod birthday_bot;
+mod bot;
 mod logging;
 mod macros;
 #[cfg(any())]
@@ -21,11 +22,13 @@ use axum::Router;
 use axum_login::{login_required, AuthManagerLayerBuilder};
 use oauth2::basic::BasicClient;
 use reqwest::Client as ReqwestClient;
-use slack_morphism::{SlackApiToken, SlackSigningSecret};
+use slack_morphism::hyper_tokio::{SlackClientHyperConnector, SlackHyperClient};
+use slack_morphism::{SlackApiToken, SlackClient, SlackSigningSecret};
 use sqlx::postgres::PgConnectOptions;
 use std::env;
 use std::path::Path;
 use std::process::exit;
+use std::sync::Arc;
 use tokio::net::TcpListener;
 use tokio::signal;
 use tower_http::services::ServeDir;
@@ -114,12 +117,19 @@ async fn main() {
         .ok()
         .map(|assistant_id| BirthdayBot::new(async_openai::Client::new(), assistant_id));
 
+    let (slack_client, bot) = match configure_slack(&cfg.slack_config) {
+        Ok(x) => x,
+        Err(e) => return println!("could not configure slack: {}", e),
+    };
+
     let server_impl = ServerImpl {
         pool: pool.clone(),
         assets_path,
         ctx,
         cfg,
         basic_client,
+        bot,
+        slack_client,
         employee_dao: EmployeeDao::new(pool),
         slack_connect,
         birthday_bot,
@@ -148,6 +158,20 @@ async fn main() {
     }
 }
 
+fn configure_slack(
+    slack_config: &Option<SlackConfig>,
+) -> anyhow::Result<(Option<Arc<SlackHyperClient>>, Option<bot::SkjeraBot>)> {
+    if let Some(slack_config) = slack_config {
+        let slack_client = Arc::new(SlackClient::new(SlackClientHyperConnector::new()?));
+
+        let bot = bot::SkjeraBot::new(slack_client.clone(), slack_config.clone().bot_token);
+
+        Ok((Some(slack_client), Some(bot)))
+    } else {
+        Ok((None, None))
+    }
+}
+
 #[derive(Clone)]
 struct ServerImpl {
     /// TODO: Figure out how to best handle the passing of the pool. Right now it is used inside
@@ -160,6 +184,8 @@ struct ServerImpl {
     ctx: ReqwestClient,
     cfg: Config,
     basic_client: BasicClient,
+    bot: Option<bot::SkjeraBot>,
+    pub slack_client: Option<Arc<SlackHyperClient>>,
     pub employee_dao: EmployeeDao,
     pub slack_connect: Option<SlackConnect>,
     pub birthday_bot: Option<BirthdayBot>,
@@ -188,7 +214,7 @@ where
     let assets_path = Path::new(&server_impl.assets_path);
     let assets = Router::new().nest_service("/assets", ServeDir::new(assets_path));
 
-    let (public, private) = create_router(&server_impl.cfg)?;
+    let (public, private) = create_router(&server_impl)?;
     let private = private.route_layer(login_required!(ServerImpl, login_url = LOGIN_PATH));
 
     let auth_layer = AuthManagerLayerBuilder::new(server_impl.clone(), session_layer).build();
