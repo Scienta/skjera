@@ -1,6 +1,6 @@
-use crate::web::html::UnauthorizedTemplate;
-use crate::model::Employee;
+use crate::model::{Employee, EmployeeDao};
 use crate::session::SkjeraSessionData;
+use crate::web::html::UnauthorizedTemplate;
 use crate::{AppError, ServerImpl};
 use anyhow::anyhow;
 use askama_axum::Template;

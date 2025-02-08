@@ -1,4 +1,4 @@
-mod employee;
+pub(crate) mod employee;
 mod some_account;
 
 pub use crate::model::employee::*;

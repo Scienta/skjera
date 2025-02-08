@@ -1,9 +1,29 @@
 use crate::id_type;
 use crate::model::*;
+use async_trait::async_trait;
 use sqlx::types::time::Date;
 use sqlx::*;
 
 id_type!(EmployeeId);
+
+#[derive(Debug)]
+pub struct Dao {
+    pool: Pool<Postgres>,
+}
+
+impl Dao {
+    pub fn new(pool: Pool<Postgres>) -> Self {
+        Self { pool }
+    }
+}
+
+impl Clone for Dao {
+    fn clone(&self) -> Self {
+        Self {
+            pool: self.pool.clone(),
+        }
+    }
+}
 
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct Employee {
@@ -13,32 +33,82 @@ pub struct Employee {
     pub dob: Option<Date>,
 }
 
-#[derive(Debug, Clone)]
-pub struct EmployeeDao {
-    pool: Pool<Postgres>,
+#[async_trait]
+pub(crate) trait EmployeeDao {
+    async fn employees(&self) -> Result<Vec<Employee>, Error>;
+    async fn employee_by_id(&self, id: EmployeeId) -> Result<Option<Employee>, Error>;
+    async fn employee_by_email(&self, email: String) -> Result<Option<Employee>, Error>;
+    async fn employee_by_username(&self, username: String) -> Result<Option<Employee>, Error>;
+    async fn insert_employee(&self, email: String, name: String) -> Result<Employee, Error>;
+    async fn update(&self, employee: &Employee) -> Result<Employee, Error>;
+    async fn add_some_account(
+        &self,
+        employee: EmployeeId,
+        network: SomeNetwork,
+        network_instance: Option<String>,
+        authenticated: bool,
+        network_avatar: Option<String>,
+        subject: Option<String>,
+        name: Option<String>,
+        nick: Option<String>,
+        url: Option<String>,
+        avatar: Option<String>,
+    ) -> Result<SomeAccount, Error>;
+
+    async fn some_accounts_by_employee(
+        &self,
+        employee_id: EmployeeId,
+    ) -> Result<Vec<SomeAccount>, Error>;
+
+    async fn some_account_for_network(
+        &self,
+        employee_id: EmployeeId,
+        network: String,
+        network_instance: Option<String>,
+    ) -> Result<Option<SomeAccount>, Error>;
+
+    async fn update_some_account(
+        &self,
+        id: SomeAccountId,
+        authenticated: bool,
+        network_avatar: Option<String>,
+        subject: Option<String>,
+        name: Option<String>,
+        nick: Option<String>,
+        url: Option<String>,
+        avatar: Option<String>,
+    ) -> Result<SomeAccount, Error>;
+
+    async fn delete_some_account(
+        &self,
+        id: SomeAccountId,
+        employee_id: EmployeeId,
+    ) -> std::result::Result<u64, Error>;
 }
 
-impl EmployeeDao {
-    pub(crate) fn new(pool: Pool<Postgres>) -> EmployeeDao {
-        EmployeeDao { pool }
-    }
+#[async_trait]
+impl EmployeeDao for Dao
+{
+    // pub(crate) fn new(pool: Pool<Db>) -> EmployeeDao<Db> {
+    //     EmployeeDao { pool }
+    // }
 
     #[tracing::instrument]
-    pub(crate) async fn employees(&self) -> Result<Vec<Employee>, Error> {
+    async fn employees(&self) -> Result<Vec<Employee>, Error> {
         sqlx::query_as!(Employee, "SELECT * FROM skjera.employee")
             .fetch_all(&self.pool)
             .await
     }
 
     #[tracing::instrument]
-    pub(crate) async fn employee_by_id(&self, id: EmployeeId) -> Result<Option<Employee>, Error> {
+    async fn employee_by_id(&self, id: EmployeeId) -> Result<Option<Employee>, Error> {
         sqlx::query_as!(Employee, "SELECT * FROM skjera.employee WHERE id=$1", id.0)
             .fetch_optional(&self.pool)
             .await
     }
 
     #[tracing::instrument]
-    pub(crate) async fn employee_by_email(&self, email: String) -> Result<Option<Employee>, Error> {
+    async fn employee_by_email(&self, email: String) -> Result<Option<Employee>, Error> {
         sqlx::query_as!(
             Employee,
             "SELECT * FROM skjera.employee WHERE email=$1",
@@ -49,11 +119,18 @@ impl EmployeeDao {
     }
 
     #[tracing::instrument]
-    pub(crate) async fn insert_employee(
-        &self,
-        email: String,
-        name: String,
-    ) -> Result<Employee, Error> {
+    async fn employee_by_username(&self, username: String) -> Result<Option<Employee>, Error> {
+        sqlx::query_as!(
+            Employee,
+            "SELECT * FROM skjera.employee WHERE name=$1",
+            username
+        )
+        .fetch_optional(&self.pool)
+        .await
+    }
+
+    #[tracing::instrument]
+    async fn insert_employee(&self, email: String, name: String) -> Result<Employee, Error> {
         sqlx::query_as!(
             Employee,
             "INSERT INTO skjera.employee (email, name) VALUES($1, $2) RETURNING *",
@@ -65,7 +142,7 @@ impl EmployeeDao {
     }
 
     #[tracing::instrument]
-    pub(crate) async fn update(&self, employee: &Employee) -> Result<Employee, Error> {
+    async fn update(&self, employee: &Employee) -> Result<Employee, Error> {
         sqlx::query_as!(
             Employee,
             "UPDATE skjera.employee SET dob=$1 WHERE id=$2
@@ -78,7 +155,7 @@ impl EmployeeDao {
     }
 
     #[tracing::instrument]
-    pub(crate) async fn add_some_account(
+    async fn add_some_account(
         &self,
         employee: EmployeeId,
         network: SomeNetwork,
@@ -112,7 +189,7 @@ impl EmployeeDao {
     }
 
     #[tracing::instrument]
-    pub(crate) async fn some_accounts_by_employee(
+    async fn some_accounts_by_employee(
         &self,
         employee_id: EmployeeId,
     ) -> Result<Vec<SomeAccount>, Error> {
@@ -126,7 +203,7 @@ impl EmployeeDao {
     }
 
     #[tracing::instrument]
-    pub(crate) async fn some_account_for_network(
+    async fn some_account_for_network(
         &self,
         employee_id: EmployeeId,
         network: String,
@@ -144,7 +221,7 @@ impl EmployeeDao {
     }
 
     #[tracing::instrument]
-    pub(crate) async fn update_some_account(
+    async fn update_some_account(
         &self,
         id: SomeAccountId,
         authenticated: bool,
@@ -182,7 +259,7 @@ impl EmployeeDao {
     }
 
     #[tracing::instrument]
-    pub(crate) async fn delete_some_account(
+    async fn delete_some_account(
         &self,
         id: SomeAccountId,
         employee_id: EmployeeId,

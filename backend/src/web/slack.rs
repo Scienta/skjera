@@ -19,6 +19,7 @@ use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
 use tracing::{debug, info, span, Level};
 use url::Url;
+use crate::model::EmployeeDao;
 
 type SlackUserInfoClaims = UserInfoClaims<SlackAdditionalClaims, CoreGenderClaim>;
 

@@ -12,6 +12,8 @@ mod slack_client;
 mod web;
 
 use crate::birthday_bot::BirthdayBot;
+use crate::bot::birthday::BirthdayHandler;
+use crate::bot::hey::HeyHandler;
 use crate::model::*;
 use crate::session::SkjeraSessionData;
 use crate::web::web::create_router;
@@ -25,9 +27,11 @@ use reqwest::Client as ReqwestClient;
 use slack_morphism::hyper_tokio::{SlackClientHyperConnector, SlackHyperClient};
 use slack_morphism::{SlackApiToken, SlackClient, SlackSigningSecret};
 use sqlx::postgres::PgConnectOptions;
+use sqlx::{Pool, Postgres};
 use std::env;
 use std::path::Path;
 use std::process::exit;
+use std::string::ToString;
 use std::sync::Arc;
 use tokio::net::TcpListener;
 use tokio::signal;
@@ -43,6 +47,8 @@ const VERSION_INFO: &str = env!("VERSION_INFO");
 
 pub(crate) type AuthSession = axum_login::AuthSession<ServerImpl>;
 const LOGIN_PATH: &'static str = "/login";
+
+const SCIENTA_SLACK_NETWORK_ID: &str = "T03S4JU33";
 
 #[tokio::main]
 async fn main() {
@@ -117,7 +123,7 @@ async fn main() {
         .ok()
         .map(|assistant_id| BirthdayBot::new(async_openai::Client::new(), assistant_id));
 
-    let (slack_client, bot) = match configure_slack(&cfg.slack_config) {
+    let (slack_client, bot) = match configure_slack(pool.clone(), &cfg.slack_config) {
         Ok(x) => x,
         Err(e) => return println!("could not configure slack: {}", e),
     };
@@ -130,7 +136,7 @@ async fn main() {
         basic_client,
         bot,
         slack_client,
-        employee_dao: EmployeeDao::new(pool),
+        employee_dao: Dao::new(pool),
         slack_connect,
         birthday_bot,
     };
@@ -159,12 +165,23 @@ async fn main() {
 }
 
 fn configure_slack(
+    pool: Pool<Postgres>,
     slack_config: &Option<SlackConfig>,
-) -> anyhow::Result<(Option<Arc<SlackHyperClient>>, Option<bot::SkjeraBot>)> {
+) -> anyhow::Result<(Option<Arc<SlackHyperClient>>, Option<bot::SkjeraBot<Postgres>>)> {
     if let Some(slack_config) = slack_config {
         let slack_client = Arc::new(SlackClient::new(SlackClientHyperConnector::new()?));
 
-        let bot = bot::SkjeraBot::new(slack_client.clone(), slack_config.clone().bot_token);
+        let mut handlers: Vec<Arc<dyn bot::SlackHandler + Send + Sync>> = Vec::new();
+
+        handlers.push(Arc::new(BirthdayHandler::new(pool.clone(), SCIENTA_SLACK_NETWORK_ID.to_string())));
+        handlers.push(Arc::new(HeyHandler {}));
+
+        let bot = bot::SkjeraBot::new(
+            slack_client.clone(),
+            slack_config.clone().bot_token,
+            pool,
+            handlers,
+        );
 
         Ok((Some(slack_client), Some(bot)))
     } else {
@@ -179,14 +196,14 @@ struct ServerImpl {
     /// Perhaps the EmployeeDao shouldn't use the pool at all and everything should just use this
     /// single reference.
     #[allow(dead_code)]
-    pool: sqlx::PgPool,
+    pool: Pool<Postgres>,
     assets_path: String,
     ctx: ReqwestClient,
     cfg: Config,
     basic_client: BasicClient,
-    bot: Option<bot::SkjeraBot>,
+    bot: Option<bot::SkjeraBot<Postgres>>,
     pub slack_client: Option<Arc<SlackHyperClient>>,
-    pub employee_dao: EmployeeDao,
+    pub employee_dao: Dao,
     pub slack_connect: Option<SlackConnect>,
     pub birthday_bot: Option<BirthdayBot>,
 }

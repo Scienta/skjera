@@ -1,23 +1,75 @@
-mod hey;
+pub mod birthday;
+pub mod hey;
 
-use std::sync::Arc;
+use async_trait::async_trait;
 use axum::response::{IntoResponse, Response};
 use http::StatusCode;
 use slack_morphism::prelude::*;
+use sqlx::{Database, Pool};
+use std::sync::Arc;
 use tracing::{info, instrument, warn};
 
 pub(crate) type SlackClientSession<'a> =
     slack_morphism::SlackClientSession<'a, SlackClientHyperHttpsConnector>;
 
-#[derive(Clone)]
-pub(crate) struct SkjeraBot {
-    client: Arc<SlackClient<SlackClientHyperHttpsConnector>>,
-    token: SlackApiToken,
+pub(crate) enum SlackHandlerResponse {
+    Handled,
+    NotHandled,
 }
 
-impl SkjeraBot {
-    pub fn new(client: Arc<SlackClient<SlackClientHyperHttpsConnector>>, token: SlackApiToken) -> Self {
-        SkjeraBot { client, token }
+#[async_trait]
+pub(crate) trait SlackHandler {
+    async fn handle(
+        &self,
+        session: &SlackClientSession,
+        sender: &SlackUserId,
+        channel: &SlackChannelId,
+        content: &String,
+    ) -> SlackHandlerResponse;
+}
+
+pub(crate) struct SkjeraBot<Db>
+where
+    Db: Database,
+    Pool<Db>: Clone,
+{
+    client: Arc<SlackClient<SlackClientHyperHttpsConnector>>,
+    token: SlackApiToken,
+    pool: Pool<Db>,
+    handlers: Vec<Arc<dyn SlackHandler + Send + Sync>>,
+}
+
+impl<Db: Database + Send + Sync> Clone for SkjeraBot<Db>
+where
+    Pool<Db>: Clone,
+{
+    fn clone(&self) -> Self {
+        Self {
+            client: self.client.clone(),
+            token: self.token.clone(),
+            pool: self.pool.clone(),
+            handlers: self.handlers.clone(),
+        }
+    }
+}
+
+impl<Db> SkjeraBot<Db>
+where
+    Db: Database,
+    Pool<Db>: Clone,
+{
+    pub fn new(
+        client: Arc<SlackClient<SlackClientHyperHttpsConnector>>,
+        token: SlackApiToken,
+        pool: Pool<Db>,
+        handlers: Vec<Arc<dyn SlackHandler + Send + Sync>>,
+    ) -> Self {
+        SkjeraBot {
+            client,
+            token,
+            pool,
+            handlers,
+        }
     }
 
     #[instrument(skip(self, event))]
@@ -64,10 +116,15 @@ impl SkjeraBot {
                     return;
                 }
 
-                let session = self.client.open_session(&self.token);
+                let token = self.token.clone();
+                let session = self.client.open_session(&token);
 
-                if content == "hey" {
-                    hey::on_hey(&session, sender, channel, content).await;
+                for h in self.handlers.iter() {
+                    let r = h.handle(&session, &sender, &channel, &content).await;
+                    match r {
+                        SlackHandlerResponse::NotHandled => {}
+                        SlackHandlerResponse::Handled => return,
+                    }
                 }
             }
             _ => (),

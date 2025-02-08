@@ -29,19 +29,6 @@ static MONTH_NAMES: Lazy<Vec<String>> = Lazy::new(|| {
     ]
 });
 
-#[derive(Template)]
-#[template(path = "me.html")]
-struct MeTemplate<'a> {
-    pub month_names: &'a [String],
-    pub days: Vec<i32>,
-    pub dob_year: usize,
-    pub dob_month: usize,
-    pub dob_day: usize,
-    pub some_accounts: Vec<SomeAccount>,
-
-    pub slack_url: Option<String>,
-}
-
 #[axum::debug_handler]
 #[tracing::instrument(skip(app, session))]
 pub async fn get_me(
@@ -151,6 +138,19 @@ pub(crate) struct AddSomeAccountForm {
 
     x: String,
     button_x: Option<String>,
+}
+
+#[derive(Template)]
+#[template(path = "me.html")]
+struct MeTemplate<'a> {
+    pub month_names: &'a [String],
+    pub days: Vec<i32>,
+    pub dob_year: usize,
+    pub dob_month: usize,
+    pub dob_day: usize,
+    pub some_accounts: Vec<SomeAccount>,
+
+    pub slack_url: Option<String>,
 }
 
 pub async fn add_some_account(
