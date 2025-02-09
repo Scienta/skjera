@@ -33,46 +33,9 @@ impl BirthdayHandler {
 
         let username = content;
 
-        #[derive(Debug, Clone)]
-        pub struct BirthdayMessage {
-            pub username: String,
-            pub user_id: Result<SlackUserId, String>,
-        }
-
-        impl SlackMessageTemplate for BirthdayMessage {
-            fn render_template(&self) -> SlackMessageContent {
-                SlackMessageContent::new()
-                    .with_text(format!("Happy birthday to {}", self.username))
-                    .with_blocks(slack_blocks![
-                        some_into(SlackSectionBlock::new().with_text(md!(
-                            "Happy birthday to {}",
-                            self.user_id.clone().map(|u| u.to_slack_format()).unwrap_or_else(|s|s)
-                        ))) /*,
-                            some_into(SlackDividerBlock::new()),
-                            some_into(SlackImageBlock::new(
-                                Url::parse("https://www.gstatic.com/webp/gallery3/2_webp_ll.png").unwrap(),
-                                "Test Image".into()
-                            )),
-                            some_into(SlackHeaderBlock::new(pt!("Simple header"))),
-                            some_into(SlackActionsBlock::new(slack_blocks![some_into(
-                                SlackBlockButtonElement::new(
-                                    "simple-message-button".into(),
-                                    pt!("Simple button text")
-                                )
-                            )]))*/
-                    ])
-            }
-        }
-
         let dao = Dao::new(self.pool.clone());
 
-        let user_id = match dao
-            .employee_by_username(username.clone())
-            .await
-            .map_err(|e| {
-                warn!("unable to query: {}", e);
-                Handled
-            }) {
+        let user_id = match dao.employee_by_username(username.clone()).await {
             Ok(Some(e)) => {
                 match dao
                     .some_account_for_network(
@@ -83,11 +46,18 @@ impl BirthdayHandler {
                     .await
                 {
                     Ok(Some(account)) => account.subject.map(|s| Ok(SlackUserId(s))).unwrap(),
-                    _ => Err(username.clone()),
+                    Ok(None) => Err(username.clone()),
+                    Err(e) => {
+                        warn!("unable to query: {}", e);
+                        return Handled;
+                    }
                 }
             }
-            // Ok(None) => Ok(username),
-            _ => return Handled,
+            Ok(None) => Err(username.clone()),
+            Err(e) => {
+                warn!("unable to query: {}", e);
+                return Handled;
+            }
         };
 
         let message = BirthdayMessage { username, user_id };
@@ -101,6 +71,32 @@ impl BirthdayHandler {
                 NotHandled
             }
         }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct BirthdayMessage {
+    pub username: String,
+    pub user_id: Result<SlackUserId, String>,
+}
+
+impl SlackMessageTemplate for BirthdayMessage {
+    fn render_template(&self) -> SlackMessageContent {
+        SlackMessageContent::new()
+            .with_blocks(slack_blocks![
+                some_into(SlackHeaderBlock::new(pt!("It's a birthday!! :partying_face: :tada:"))),
+                some_into(SlackSectionBlock::new().with_text(md!(
+                            "Happy birthday to {} :partying_face: :tada:",
+                            self.user_id.clone().map(|u| u.to_slack_format()).unwrap_or_else(|s|s)
+                        ))),
+                some_into(SlackDividerBlock::new()),
+                some_into(SlackActionsBlock::new(slack_blocks![some_into(
+                    SlackBlockButtonElement::new(
+                        "simple-message-button".into(),
+                        pt!("Generate message")
+                    )
+                )]))
+            ])
     }
 }
 

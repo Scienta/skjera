@@ -88,6 +88,13 @@ where
         (StatusCode::OK, "got it!").into_response()
     }
 
+    #[instrument(skip(self, event))]
+    pub(crate) async fn on_block_action<'a>(self: &Self, event: SlackInteractionBlockActionsEvent) -> Response {
+        info!("Received slack interaction event: {:?}", event);
+
+        (StatusCode::OK, "got it!").into_response()
+    }
+
     async fn on_message<'a>(self: &Self, event: SlackMessageEvent) {
         info!("got message: {:?}", event.clone());
 

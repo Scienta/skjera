@@ -57,14 +57,23 @@ fn create_slack(app: &ServerImpl) -> Result<Router<ServerImpl>> {
     let listener: SlackEventsAxumListener<SlackHyperHttpsConnector> =
         SlackEventsAxumListener::new(listener_environment.clone());
 
-    let router = Router::new().route(
-        "/api/slack-push",
-        post(slack_push_event).layer(
-            listener
-                .events_layer(&signing_secret)
-                .with_event_extractor(SlackEventsExtractors::push_event()),
-        ),
-    );
+    let router = Router::new()
+        .route(
+            "/api/slack-push",
+            post(slack_push_event).layer(
+                listener
+                    .events_layer(&signing_secret)
+                    .with_event_extractor(SlackEventsExtractors::push_event()),
+            ),
+        )
+        .route(
+            "/api/slack-interaction",
+            post(slack_interaction_event).layer(
+                listener
+                    .events_layer(&signing_secret)
+                    .with_event_extractor(SlackEventsExtractors::interaction_event()),
+            ),
+        );
 
     Ok(router)
 }
