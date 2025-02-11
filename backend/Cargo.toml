@@ -47,6 +47,7 @@ tracing-loki = { version = "0.2.6", optional = true }
 tracing-opentelemetry = { version = "0.28.0", features = [] }
 tracing-subscriber = { version = "0.3.19", features = ["env-filter", "registry", "fmt"] }
 url = "2.5.4"
+uuid = { version = "1.13.1", features = ["v6", "v7", "v8"] }
 
 [build-dependencies]
 build-data = "0.2.1"

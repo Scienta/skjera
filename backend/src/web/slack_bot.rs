@@ -8,6 +8,7 @@ use slack_morphism::prelude::*;
 use std::sync::Arc;
 use tracing::{info, instrument, warn};
 
+#[axum::debug_handler]
 pub(super) async fn slack_push_event(
     State(app): State<ServerImpl>,
     Extension(_environment): Extension<Arc<SlackHyperListenerEnvironment>>,

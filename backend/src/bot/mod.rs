@@ -1,12 +1,15 @@
 pub mod birthday;
 pub mod hey;
 
+use crate::actor::{SkjeraSlackInteractionHandler, SlackInteractionHandlers, SlackInteractionId};
+use anyhow::anyhow;
 use async_trait::async_trait;
 use axum::response::{IntoResponse, Response};
 use http::StatusCode;
 use slack_morphism::prelude::*;
 use sqlx::{Database, Pool};
 use std::sync::Arc;
+use tokio::sync::Mutex;
 use tracing::{info, instrument, warn};
 
 pub(crate) type SlackClientSession<'a> =
@@ -20,7 +23,7 @@ pub(crate) enum SlackHandlerResponse {
 #[async_trait]
 pub(crate) trait SlackHandler {
     async fn handle(
-        &self,
+        &mut self,
         session: &SlackClientSession,
         sender: &SlackUserId,
         channel: &SlackChannelId,
@@ -36,7 +39,8 @@ where
     client: Arc<SlackClient<SlackClientHyperHttpsConnector>>,
     token: SlackApiToken,
     pool: Pool<Db>,
-    handlers: Vec<Arc<dyn SlackHandler + Send + Sync>>,
+    handlers: Vec<Arc<Mutex<dyn SlackHandler + Send + Sync>>>,
+    slack_interaction_handlers: SlackInteractionHandlers,
 }
 
 impl<Db: Database + Send + Sync> Clone for SkjeraBot<Db>
@@ -49,6 +53,7 @@ where
             token: self.token.clone(),
             pool: self.pool.clone(),
             handlers: self.handlers.clone(),
+            slack_interaction_handlers: self.slack_interaction_handlers.clone(),
         }
     }
 }
@@ -62,13 +67,15 @@ where
         client: Arc<SlackClient<SlackClientHyperHttpsConnector>>,
         token: SlackApiToken,
         pool: Pool<Db>,
-        handlers: Vec<Arc<dyn SlackHandler + Send + Sync>>,
+        handlers: Vec<Arc<Mutex<dyn SlackHandler + Send + Sync>>>,
+        slack_interaction_handlers: SlackInteractionHandlers,
     ) -> Self {
         SkjeraBot {
             client,
             token,
             pool,
             handlers,
+            slack_interaction_handlers,
         }
     }
 
@@ -89,8 +96,41 @@ where
     }
 
     #[instrument(skip(self, event))]
-    pub(crate) async fn on_block_action<'a>(self: &Self, event: SlackInteractionBlockActionsEvent) -> Response {
+    pub(crate) async fn on_block_action<'a>(
+        self: &Self,
+        event: SlackInteractionBlockActionsEvent,
+    ) -> Response {
         info!("Received slack interaction event: {:?}", event);
+
+        async fn get_handler(
+            action: &SlackInteractionActionInfo,
+            slack_interaction_handlers: &SlackInteractionHandlers,
+        ) -> anyhow::Result<Arc<dyn SkjeraSlackInteractionHandler + Send + Sync>> {
+            let interaction_id: SlackInteractionId = action
+                .action_id
+                .clone()
+                .try_into()
+                .map_err(|e| anyhow!("invalid interaction id: {}", e))?;
+
+            slack_interaction_handlers
+                .get_handler(interaction_id.clone())
+                .await
+                .ok_or_else(|| {
+                    anyhow!(
+                        "No interaction handler for interaction_id: {}",
+                        interaction_id.clone()
+                    )
+                })
+        }
+
+        for action in event.actions.clone().unwrap_or_default().iter() {
+            match get_handler(action, &self.slack_interaction_handlers).await {
+                Ok(h) => h.on_slack_interaction(&event).await,
+                Err(e) => {
+                    return (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response()
+                }
+            }
+        }
 
         (StatusCode::OK, "got it!").into_response()
     }
@@ -127,7 +167,11 @@ where
                 let session = self.client.open_session(&token);
 
                 for h in self.handlers.iter() {
-                    let r = h.handle(&session, &sender, &channel, &content).await;
+                    let r = h
+                        .lock()
+                        .await
+                        .handle(&session, &sender, &channel, &content)
+                        .await;
                     match r {
                         SlackHandlerResponse::NotHandled => {}
                         SlackHandlerResponse::Handled => return,

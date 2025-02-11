@@ -1,3 +1,4 @@
+mod actor;
 mod birthday_bot;
 mod bot;
 mod logging;
@@ -11,6 +12,7 @@ mod skjera;
 mod slack_client;
 mod web;
 
+use crate::actor::SlackInteractionHandlers;
 use crate::birthday_bot::BirthdayBot;
 use crate::bot::birthday::BirthdayHandler;
 use crate::bot::hey::HeyHandler;
@@ -35,6 +37,7 @@ use std::string::ToString;
 use std::sync::Arc;
 use tokio::net::TcpListener;
 use tokio::signal;
+use tokio::sync::Mutex;
 use tower_http::services::ServeDir;
 use tower_http::trace::TraceLayer;
 use tower_sessions::cookie::SameSite::Lax;
@@ -123,7 +126,13 @@ async fn main() {
         .ok()
         .map(|assistant_id| BirthdayBot::new(async_openai::Client::new(), assistant_id));
 
-    let (slack_client, bot) = match configure_slack(pool.clone(), &cfg.slack_config) {
+    let slack_interaction_handlers = SlackInteractionHandlers::new();
+
+    let (slack_client, bot) = match configure_slack(
+        pool.clone(),
+        slack_interaction_handlers.clone(),
+        &cfg.slack_config,
+    ) {
         Ok(x) => x,
         Err(e) => return println!("could not configure slack: {}", e),
     };
@@ -139,6 +148,7 @@ async fn main() {
         employee_dao: Dao::new(pool),
         slack_connect,
         birthday_bot,
+        slack_interaction_handlers,
     };
 
     // let tracer = tracer("my_tracer");
@@ -166,21 +176,32 @@ async fn main() {
 
 fn configure_slack(
     pool: Pool<Postgres>,
+    slack_interaction_handlers: SlackInteractionHandlers,
     slack_config: &Option<SlackConfig>,
-) -> anyhow::Result<(Option<Arc<SlackHyperClient>>, Option<bot::SkjeraBot<Postgres>>)> {
+) -> anyhow::Result<(
+    Option<Arc<SlackHyperClient>>,
+    Option<bot::SkjeraBot<Postgres>>,
+)> {
     if let Some(slack_config) = slack_config {
         let slack_client = Arc::new(SlackClient::new(SlackClientHyperConnector::new()?));
 
-        let mut handlers: Vec<Arc<dyn bot::SlackHandler + Send + Sync>> = Vec::new();
+        let mut handlers: Vec<Arc<Mutex<dyn bot::SlackHandler + Send + Sync>>> = Vec::new();
 
-        handlers.push(Arc::new(BirthdayHandler::new(pool.clone(), SCIENTA_SLACK_NETWORK_ID.to_string())));
-        handlers.push(Arc::new(HeyHandler {}));
+        let birthday_handler = BirthdayHandler::new(
+            pool.clone(),
+            slack_interaction_handlers.clone(),
+            SCIENTA_SLACK_NETWORK_ID.to_string(),
+        );
+
+        handlers.push(Arc::new(Mutex::new(birthday_handler)));
+        handlers.push(Arc::new(Mutex::new(HeyHandler {})));
 
         let bot = bot::SkjeraBot::new(
             slack_client.clone(),
             slack_config.clone().bot_token,
             pool,
             handlers,
+            slack_interaction_handlers,
         );
 
         Ok((Some(slack_client), Some(bot)))
@@ -206,6 +227,7 @@ struct ServerImpl {
     pub employee_dao: Dao,
     pub slack_connect: Option<SlackConnect>,
     pub birthday_bot: Option<BirthdayBot>,
+    pub slack_interaction_handlers: SlackInteractionHandlers,
 }
 
 impl ServerImpl {

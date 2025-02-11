@@ -61,7 +61,7 @@ impl HeyHandler {
 #[async_trait]
 impl SlackHandler for HeyHandler {
     async fn handle(
-        &self,
+        &mut self,
         session: &SlackClientSession,
         sender: &SlackUserId,
         channel: &SlackChannelId,
