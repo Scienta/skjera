@@ -7,13 +7,14 @@ use tracing::{info, info_span, instrument};
 
 type Client = async_openai::Client<OpenAIConfig>;
 
+/// An OpenAI-based birthday message assistant.
 #[derive(Clone)]
-pub struct BirthdayBot {
+pub struct BirthdayAssistant {
     client: Client,
     assistant_id: String,
 }
 
-impl BirthdayBot {
+impl BirthdayAssistant {
     pub fn new(client: Client, assistant_id: String) -> Self {
         Self {
             client,

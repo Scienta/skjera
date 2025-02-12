@@ -1,5 +1,5 @@
 mod actor;
-mod birthday_bot;
+mod birthday_assistant;
 mod bot;
 mod logging;
 mod macros;
@@ -13,7 +13,7 @@ mod slack_client;
 mod web;
 
 use crate::actor::SlackInteractionHandlers;
-use crate::birthday_bot::BirthdayBot;
+use crate::birthday_assistant::BirthdayAssistant;
 use crate::bot::birthday::BirthdayHandler;
 use crate::bot::hey::HeyHandler;
 use crate::model::*;
@@ -122,9 +122,10 @@ async fn main() {
         None => None,
     };
 
+    // TODO: Rename to BIRTHDAY_ASSISTANT
     let birthday_bot = env::var("BIRTHDAY_BOT")
         .ok()
-        .map(|assistant_id| BirthdayBot::new(async_openai::Client::new(), assistant_id));
+        .map(|assistant_id| BirthdayAssistant::new(async_openai::Client::new(), assistant_id));
 
     let slack_interaction_handlers = SlackInteractionHandlers::new();
 
@@ -226,7 +227,7 @@ struct ServerImpl {
     pub slack_client: Option<Arc<SlackHyperClient>>,
     pub employee_dao: Dao,
     pub slack_connect: Option<SlackConnect>,
-    pub birthday_bot: Option<BirthdayBot>,
+    pub birthday_bot: Option<BirthdayAssistant>,
     pub slack_interaction_handlers: SlackInteractionHandlers,
 }
 
