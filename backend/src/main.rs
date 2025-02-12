@@ -131,6 +131,7 @@ async fn main() {
 
     let (slack_client, bot) = match configure_slack(
         pool.clone(),
+        birthday_bot.clone(),
         slack_interaction_handlers.clone(),
         &cfg.slack_config,
     ) {
@@ -177,6 +178,7 @@ async fn main() {
 
 fn configure_slack(
     pool: Pool<Postgres>,
+    birthday_assistant: Option<BirthdayAssistant>,
     slack_interaction_handlers: SlackInteractionHandlers,
     slack_config: &Option<SlackConfig>,
 ) -> anyhow::Result<(
@@ -188,13 +190,17 @@ fn configure_slack(
 
         let mut handlers: Vec<Arc<Mutex<dyn bot::SlackHandler + Send + Sync>>> = Vec::new();
 
-        let birthday_handler = BirthdayHandler::new(
-            pool.clone(),
-            slack_interaction_handlers.clone(),
-            SCIENTA_SLACK_NETWORK_ID.to_string(),
-        );
+        if let Some(birthday_assistant) = birthday_assistant {
+            let birthday_handler = BirthdayHandler::new(
+                pool.clone(),
+                birthday_assistant,
+                slack_interaction_handlers.clone(),
+                SCIENTA_SLACK_NETWORK_ID.to_string(),
+            );
 
-        handlers.push(Arc::new(Mutex::new(birthday_handler)));
+            handlers.push(Arc::new(Mutex::new(birthday_handler)));
+        }
+
         handlers.push(Arc::new(Mutex::new(HeyHandler {})));
 
         let bot = bot::SkjeraBot::new(

@@ -1,4 +1,5 @@
 use crate::actor::{SkjeraSlackInteractionHandler, SlackInteractionHandlers, SlackInteractionId};
+use crate::birthday_assistant::BirthdayAssistant;
 use crate::bot::{SlackClientSession, SlackHandler, SlackHandlerResponse};
 use crate::model::employee::EmployeeDao;
 use crate::model::{Dao, SLACK};
@@ -12,6 +13,7 @@ use SlackHandlerResponse::*;
 #[derive(Clone)]
 pub(crate) struct BirthdayHandler {
     pool: Pool<Postgres>,
+    birthday_assistant: BirthdayAssistant,
     slack_interaction_handlers: SlackInteractionHandlers,
     slack_network_id: String,
 }
@@ -19,11 +21,13 @@ pub(crate) struct BirthdayHandler {
 impl BirthdayHandler {
     pub(crate) fn new(
         pool: Pool<Postgres>,
+        birthday_assistant: BirthdayAssistant,
         slack_interaction_handlers: SlackInteractionHandlers,
         network_id: String,
     ) -> BirthdayHandler {
         Self {
             pool,
+            birthday_assistant,
             slack_interaction_handlers,
             slack_network_id: network_id,
         }
