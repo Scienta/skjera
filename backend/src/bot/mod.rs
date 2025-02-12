@@ -10,7 +10,7 @@ use slack_morphism::prelude::*;
 use sqlx::{Database, Pool};
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use tracing::{info, instrument, warn};
+use tracing::{debug, info, instrument, warn};
 
 pub(crate) type SlackClientSession<'a> =
     slack_morphism::SlackClientSession<'a, SlackClientHyperHttpsConnector>;
@@ -136,15 +136,13 @@ where
     }
 
     async fn on_message<'a>(self: &Self, event: SlackMessageEvent) {
-        info!("got message: {:?}", event.clone());
-
-        let content = event.content.and_then(|c| c.text);
+        let content = event.content.clone().and_then(|c| c.text);
 
         match (
-            event.sender.user,
-            event.sender.bot_id,
-            event.origin.channel,
-            event.origin.channel_type,
+            &event.sender.user,
+            &event.sender.bot_id,
+            &event.origin.channel,
+            &event.origin.channel_type,
             content,
         ) {
             (
@@ -160,8 +158,11 @@ where
 
                 // This is set if this bot was the sender
                 if bot_id.is_some() {
+                    debug!("Ignoring own message");
                     return;
                 }
+
+                info!("got message: {:?}", event.clone());
 
                 let token = self.token.clone();
                 let session = self.client.open_session(&token);

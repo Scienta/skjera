@@ -48,7 +48,7 @@ impl BirthdayHandler {
 
         let dao = Dao::new(self.pool.clone());
 
-        let user_id = match dao.employee_by_username(username.clone()).await {
+        let user_id = match dao.employee_by_name(username.clone()).await {
             Ok(Some(e)) => {
                 match dao
                     .some_account_for_network(
@@ -132,17 +132,14 @@ impl SlackHandler for BirthdayHandler {
 
         let first = words.get(0);
         let second = words.get(1);
-        let third = words.get(2);
 
-        match (first, second, third) {
-            (Some(&"fake"), Some(&"birthday"), Some(username)) => {
-                self.on_msg(
-                    session,
-                    sender.clone(),
-                    channel.clone(),
-                    username.to_string(),
-                )
-                .await
+        match (first, second) {
+            (Some(&"fake"), Some(&"birthday")) => {
+                let (_, content) = words.split_at(2);
+                let content = content.join(" ");
+
+                self.on_msg(session, sender.clone(), channel.clone(), content)
+                    .await
             }
             _ => NotHandled,
         }

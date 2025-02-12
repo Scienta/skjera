@@ -38,7 +38,7 @@ pub(crate) trait EmployeeDao {
     async fn employees(&self) -> Result<Vec<Employee>, Error>;
     async fn employee_by_id(&self, id: EmployeeId) -> Result<Option<Employee>, Error>;
     async fn employee_by_email(&self, email: String) -> Result<Option<Employee>, Error>;
-    async fn employee_by_username(&self, username: String) -> Result<Option<Employee>, Error>;
+    async fn employee_by_name(&self, username: String) -> Result<Option<Employee>, Error>;
     async fn insert_employee(&self, email: String, name: String) -> Result<Employee, Error>;
     async fn update(&self, employee: &Employee) -> Result<Employee, Error>;
     async fn add_some_account(
@@ -119,11 +119,11 @@ impl EmployeeDao for Dao
     }
 
     #[tracing::instrument]
-    async fn employee_by_username(&self, username: String) -> Result<Option<Employee>, Error> {
+    async fn employee_by_name(&self, name: String) -> Result<Option<Employee>, Error> {
         sqlx::query_as!(
             Employee,
             "SELECT * FROM skjera.employee WHERE name=$1",
-            username
+            name
         )
         .fetch_optional(&self.pool)
         .await
