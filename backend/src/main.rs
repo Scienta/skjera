@@ -14,11 +14,12 @@ mod web;
 
 use crate::actor::SlackInteractionHandlers;
 use crate::birthday_assistant::BirthdayAssistant;
-use crate::bot::birthday::BirthdayHandler;
+use crate::bot::birthday::{BirthdayActor, BirthdayHandler};
 use crate::bot::hey::HeyHandler;
 use crate::model::*;
 use crate::session::SkjeraSessionData;
 use crate::web::web::create_router;
+use actix::prelude::*;
 use anyhow::anyhow;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Redirect, Response};
@@ -36,8 +37,8 @@ use std::process::exit;
 use std::string::ToString;
 use std::sync::Arc;
 use tokio::net::TcpListener;
-use tokio::signal;
 use tokio::sync::Mutex;
+use tokio::{signal, task};
 use tower_http::services::ServeDir;
 use tower_http::trace::TraceLayer;
 use tower_sessions::cookie::SameSite::Lax;
@@ -104,6 +105,32 @@ async fn main() {
             exit(1)
         }
     };
+
+    let (tx, rx) = tokio::sync::oneshot::channel::<Addr<BirthdayActor>>();
+
+    let local_set = task::LocalSet::new();
+    local_set
+        .run_until(async move {
+            // let system = System::new();
+
+            // let arbiter = Arbiter::new();
+
+            let birthday_actor = BirthdayActor { count: 0 };
+            let addr = birthday_actor.start();
+            let _ = tx.send(addr);
+
+            // system.run().unwrap();
+        })
+        .await;
+
+    let birthday_addr = match rx.await {
+        Ok(addr) => addr,
+        Err(e) => {
+            eprintln!("Could not start Birthday actor: {}", e);
+            exit(1);
+        }
+    };
+
     let basic_client = oauth::build_oauth_client(
         cfg.redirect_url.clone(),
         cfg.client_id.clone(),

@@ -13,6 +13,7 @@ loki = [
 ]
 
 [dependencies]
+actix = "0.13.5"
 anyhow = "1.0.95"
 askama = { version = "0.12.1", features = ["with-axum"] }
 askama_axum = "0.4.0"

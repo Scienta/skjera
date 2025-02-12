@@ -47,7 +47,7 @@ impl BirthdayHandler {
 
         let interaction_id = self
             .slack_interaction_handlers
-            .add_handler(Arc::new(BirthdayActor {}))
+            .add_handler(Arc::new(BirthdayActor { count: 0 }))
             .await;
 
         let dao = Dao::new(self.pool.clone());
@@ -150,7 +150,36 @@ impl SlackHandler for BirthdayHandler {
     }
 }
 
-struct BirthdayActor {}
+use actix::prelude::*;
+
+pub(crate) struct BirthdayActor {
+    pub(crate) count: usize,
+}
+
+#[derive(Message)]
+#[rtype(result = "usize")]
+enum BirthdayMsg {
+    Ping(usize),
+    Ping2(usize),
+}
+
+impl Actor for BirthdayActor {
+    type Context = Context<Self>;
+}
+
+impl Handler<BirthdayMsg> for BirthdayActor {
+    type Result = usize;
+
+    fn handle(&mut self, msg: BirthdayMsg, _ctx: &mut Context<Self>) -> Self::Result {
+        match msg {
+            BirthdayMsg::Ping(sz) => {
+                self.count += sz;
+                self.count
+            }
+            BirthdayMsg::Ping2(sz) => 0 - sz,
+        }
+    }
+}
 
 #[async_trait]
 impl SkjeraSlackInteractionHandler for BirthdayActor {
