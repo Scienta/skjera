@@ -1,6 +1,6 @@
 pub mod birthday;
 pub mod birthday_actor;
-pub mod birthday_actors;
+pub mod birthdays_actor;
 pub mod hey;
 
 use crate::actor::{SkjeraSlackInteractionHandler, SlackInteractionHandlers, SlackInteractionId};

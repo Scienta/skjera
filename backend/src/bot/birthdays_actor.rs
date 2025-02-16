@@ -6,6 +6,7 @@ use crate::model::Dao;
 use actix::prelude::*;
 use slack_morphism::SlackChannelId;
 use std::sync::Arc;
+use tracing::{info, instrument};
 
 pub(crate) struct BirthdaysActor {
     dao: Dao,
@@ -14,7 +15,7 @@ pub(crate) struct BirthdaysActor {
     slack_client: Arc<SlackClient>,
 }
 
-#[derive(Message)]
+#[derive(Message, Debug)]
 #[rtype(result = "Addr<BirthdayActor>")]
 pub(crate) struct CreateBirthdayActor {
     pub channel: SlackChannelId,
@@ -43,7 +44,9 @@ impl Actor for BirthdaysActor {
 impl Handler<CreateBirthdayActor> for BirthdaysActor {
     type Result = Addr<BirthdayActor>;
 
-    fn handle(&mut self, msg: CreateBirthdayActor, _ctx: &mut Self::Context) -> Self::Result {
+    #[instrument(skip(self))]
+    fn handle(&mut self, msg: CreateBirthdayActor, _: &mut Self::Context) -> Self::Result {
+        info!("Creating new BirthdayActor");
         BirthdayActor::new(
             self.dao.clone(),
             self.birthday_assistant.clone(),

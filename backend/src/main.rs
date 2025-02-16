@@ -15,9 +15,9 @@ mod web;
 use crate::actor::SlackInteractionHandlers;
 use crate::birthday_assistant::BirthdayAssistant;
 use crate::bot::birthday::BirthdayHandler;
-use crate::bot::birthday_actors::BirthdaysActor;
+use crate::bot::birthdays_actor::BirthdaysActor;
 use crate::bot::hey::HeyHandler;
-use crate::bot::{SlackClient};
+use crate::bot::SlackClient;
 use crate::model::*;
 use crate::session::SkjeraSessionData;
 use crate::web::web::create_router;
@@ -52,8 +52,20 @@ const VERSION_INFO: &str = env!("VERSION_INFO");
 pub(crate) type AuthSession = axum_login::AuthSession<ServerImpl>;
 const LOGIN_PATH: &'static str = "/login";
 
-#[tokio::main]
-async fn main() {
+fn main() {
+    // tokio::runtime::Builder::new_multi_thread()
+    //     .enable_all()
+    //     .build()
+    //     .unwrap()
+    //     .block_on(async {
+    //         println!("Hello world");
+    //     })
+
+    let s = System::new();
+    s.block_on(async { main2().await })
+}
+
+async fn main2() {
     println!("Starting skjera. version={}", VERSION_INFO);
 
     // We don't care if there is a problem here
@@ -191,7 +203,9 @@ fn configure_slack(
     Option<Addr<BirthdaysActor>>,
 )> {
     if let (Some(slack_config), Some(birthday_assistant)) = (slack_config, birthday_assistant) {
-        let slack_client = slack_morphism::prelude::SlackClient::new(slack_morphism::prelude::SlackClientHyperConnector::new()?);
+        let slack_client = slack_morphism::prelude::SlackClient::new(
+            slack_morphism::prelude::SlackClientHyperConnector::new()?,
+        );
 
         let slack_client = crate::bot::SlackClient {
             client: slack_client,
@@ -217,7 +231,12 @@ fn configure_slack(
             slack_client: slack_client.clone(),
         })));
 
-        let bot = bot::SkjeraBot::new(slack_client.clone(), pool, handlers, slack_interaction_handlers);
+        let bot = bot::SkjeraBot::new(
+            slack_client.clone(),
+            pool,
+            handlers,
+            slack_interaction_handlers,
+        );
 
         Ok((Some(slack_client), Some(bot), Some(birthdays_addr)))
     } else {

@@ -1,9 +1,9 @@
-use crate::bot::birthday_actor::BirthdayMsg;
-use crate::bot::birthday_actors::{BirthdaysActor, CreateBirthdayActor};
-use crate::bot::{SlackHandler, SlackHandlerResponse};
+use crate::bot::birthdays_actor::{BirthdaysActor, CreateBirthdayActor};
+use crate::bot::{birthday_actor, birthdays_actor, SlackHandler, SlackHandlerResponse};
 use actix::prelude::*;
 use async_trait::async_trait;
 use slack_morphism::prelude::*;
+use tracing::{info, warn};
 use SlackHandlerResponse::*;
 
 #[derive(Clone)]
@@ -14,6 +14,35 @@ pub(crate) struct BirthdayHandler {
 impl BirthdayHandler {
     pub(crate) fn new(birthdays_actor: Addr<BirthdaysActor>) -> BirthdayHandler {
         Self { birthdays_actor }
+    }
+
+    async fn fake_birthday(
+        &mut self,
+        channel: &SlackChannelId,
+        content: &String,
+    ) -> anyhow::Result<()> {
+        let addr = self
+            .birthdays_actor
+            .send(CreateBirthdayActor {
+                channel: channel.clone(),
+            })
+            .await?;
+
+        info!(
+            "new birthday created: {:?}, connected={}",
+            addr,
+            addr.connected()
+        );
+
+        let _x = addr
+            .send(birthday_actor::Init {
+                content: content.clone(),
+            })
+            .await?;
+
+        info!("Birthday initialized");
+
+        Ok(())
     }
 }
 
@@ -35,15 +64,11 @@ impl SlackHandler for BirthdayHandler {
                 let (_, content) = words.split_at(2);
                 let content = content.join(" ");
 
-                let addr = self
-                    .birthdays_actor
-                    .send(CreateBirthdayActor {
-                        channel: channel.clone(),
-                    })
-                    .await
-                    .unwrap();
+                match self.fake_birthday(channel, &content).await {
+                    Ok(_) => (),
+                    Err(e) => warn!("fake birthday error: {}", e),
+                }
 
-                let _ = addr.send(BirthdayMsg::Init(content)).await;
                 // self.on_msg(session, sender.clone(), channel.clone(), content)
                 //     .await
                 Handled
