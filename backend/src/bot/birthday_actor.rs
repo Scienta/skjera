@@ -6,7 +6,7 @@ use anyhow::anyhow;
 use async_trait::async_trait;
 use slack_morphism::prelude::*;
 use std::sync::Arc;
-use tracing::{info, instrument};
+use tracing::{info, instrument, warn};
 
 const SCIENTA_SLACK_NETWORK_ID: &str = "T03S4JU33";
 
@@ -35,6 +35,69 @@ impl BirthdayActor {
             channel,
         }
     }
+
+    async fn on_init(&self, content: String) -> anyhow::Result<()> {
+        info!("got message: {:?}", content);
+
+        let username = content;
+
+        // let interaction_id = self
+        //     .slack_interaction_handlers
+        //     .add_handler(Arc::new(BirthdayActor { count: 0 }))
+        //     .await;
+
+        let interaction_id = SlackInteractionId::random();
+
+        let user_id = match self.dao.employee_by_name(username.clone()).await {
+            Ok(Some(e)) => {
+                match self
+                    .dao
+                    .some_account_for_network(
+                        e.id,
+                        SLACK.0.clone(),
+                        Some(SCIENTA_SLACK_NETWORK_ID.to_string()),
+                    )
+                    .await
+                {
+                    Ok(Some(account)) => Ok(account.subject.map(|s| Ok(SlackUserId(s))).unwrap()),
+                    Ok(None) => Ok(Err(username.clone())),
+                    Err(e) => Err(anyhow!("unable to query: {}", e)),
+                }
+            }
+            Ok(None) => Ok(Err(username.clone())),
+            Err(e) => Err(anyhow!("unable to query: {}", e)),
+        }?;
+
+        let message = BirthdayMessage {
+            username,
+            user_id,
+            interaction_id,
+        };
+
+        let req =
+            SlackApiChatPostMessageRequest::new(self.channel.clone(), message.render_template());
+
+        // let res = self
+        //     .slack_client
+        //     .run_in_session(|s|async move {
+        //         let req = req;
+        //         s.chat_post_message(&req) })
+        //     .await
+        //     .await
+        //     .await;
+
+        let session = self
+            .slack_client
+            .client
+            .open_session(&self.slack_client.token);
+
+        let res = session.chat_post_message(&req).await;
+
+        match res {
+            Ok(_) => Ok(()),
+            Err(err) => Err(anyhow!("could not post message: {}", err)),
+        }
+    }
 }
 
 impl Actor for BirthdayActor {
@@ -43,23 +106,27 @@ impl Actor for BirthdayActor {
 
 #[derive(Message, Debug)]
 #[rtype(result = "()")]
+// #[rtype(result = "anyhow::Result<()>")]
 pub struct Init {
     pub(crate) content: String,
 }
 
 impl Handler<Init> for BirthdayActor {
-    type Result = ResponseActFuture<Self, ()>;
+    // type Result = ResponseActFuture<Self, ()>;
+    // type Result = anyhow::Result<()>;
+    type Result = ();
 
-    #[instrument(skip(self))]
-    fn handle(&mut self, msg: Init, _: &mut Context<Self>) -> Self::Result {
+    // #[instrument(skip(self))]
+    fn handle(&mut self, msg: Init, ctx: &mut Context<Self>) -> Self::Result {
         let dao = self.dao.clone();
         let channel = self.channel.clone();
         let slack_client = self.slack_client.clone();
+        let content = msg.content;
 
-        let f = async move {
-            info!("got message: {:?}", msg.content);
+        let x = async move {
+            info!("got message: {:?}", content);
 
-            let username = msg.content;
+            let username = content;
 
             // let interaction_id = self
             //     .slack_interaction_handlers
@@ -79,15 +146,16 @@ impl Handler<Init> for BirthdayActor {
                         .await
                     {
                         Ok(Some(account)) => {
-                            Ok(account.subject.map(|s| Ok(SlackUserId(s))).unwrap())
+                            Ok(account.subject.map(SlackUserId).unwrap())
                         }
-                        Ok(None) => Ok(Err(username.clone())),
-                        Err(e) => Err(anyhow!("unable to query: {}", e)),
+                        Ok(None) => Err(username.clone()),
+                        Err(e) => return warn!("unable to query: {}", e),
                     }
                 }
-                Ok(None) => Ok(Err(username.clone())),
-                Err(e) => Err(anyhow!("unable to query: {}", e)),
-            }?;
+                Ok(None) => Err(username.clone()),
+                // Err(e) => Err(anyhow!("unable to query: {}", e)),
+                Err(e) => return warn!("unable to query: {}", e),
+            };
 
             let message = BirthdayMessage {
                 username,
@@ -95,10 +163,8 @@ impl Handler<Init> for BirthdayActor {
                 interaction_id,
             };
 
-            let req = SlackApiChatPostMessageRequest::new(
-                channel.clone(),
-                message.render_template(),
-            );
+            let req =
+                SlackApiChatPostMessageRequest::new(channel.clone(), message.render_template());
 
             // let res = self
             //     .slack_client
@@ -109,29 +175,27 @@ impl Handler<Init> for BirthdayActor {
             //     .await
             //     .await;
 
-            let session = slack_client
-                .client
-                .open_session(&slack_client.token);
+            let session = slack_client.client.open_session(&slack_client.token);
 
             let res = session.chat_post_message(&req).await;
 
-            match res {
-                Ok(_) => Ok(()),
-                Err(err) => Err(anyhow!("could not post message: {}", err)),
-            }
+            // match res {
+            //     Ok(_) => Ok(()),
+            //     Err(err) => Err(anyhow!("could not post message: {}", err)),
+            // };
+
+            ()
         }
-        .into_actor(self)
-        .map(|_, _, _| ());
+        .into_actor(self);
 
-        Box::pin(f)
-
-        // Box::pin(async {}.into_actor(self).map(|_, this, _ctx| {
-        //     match msg {
-        //         BirthdayMsg::Init(content) => {
-        //             let x = this.on_init(content);
-        //             x.into_actor(this) },
-        //     };
-        // }))
+        ctx.wait(x);
+        // Box::pin(x)
+        // let x = Box::pin(
+        //     async { 42 }
+        //         .into_actor(self)
+        //         .map(|_, this, _| this.on_init(msg.content)),
+        // );
+        // x
     }
 }
 
