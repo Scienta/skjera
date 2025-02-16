@@ -1,5 +1,5 @@
 use crate::bot::birthdays_actor::{BirthdaysActor, CreateBirthdayActor};
-use crate::bot::{birthday_actor, birthdays_actor, SlackHandler, SlackHandlerResponse};
+use crate::bot::{birthday_actor, SlackHandler, SlackHandlerResponse};
 use actix::prelude::*;
 use async_trait::async_trait;
 use slack_morphism::prelude::*;

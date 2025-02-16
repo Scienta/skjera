@@ -112,26 +112,19 @@ pub struct Init {
 }
 
 impl Handler<Init> for BirthdayActor {
-    // type Result = ResponseActFuture<Self, ()>;
-    // type Result = anyhow::Result<()>;
     type Result = ();
 
-    // #[instrument(skip(self))]
+    #[instrument(skip(self))]
     fn handle(&mut self, msg: Init, ctx: &mut Context<Self>) -> Self::Result {
         let dao = self.dao.clone();
         let channel = self.channel.clone();
         let slack_client = self.slack_client.clone();
         let content = msg.content;
 
-        let x = async move {
+        ctx.wait(async move {
             info!("got message: {:?}", content);
 
             let username = content;
-
-            // let interaction_id = self
-            //     .slack_interaction_handlers
-            //     .add_handler(Arc::new(BirthdayActor { count: 0 }))
-            //     .await;
 
             let interaction_id = SlackInteractionId::random();
 
@@ -166,36 +159,11 @@ impl Handler<Init> for BirthdayActor {
             let req =
                 SlackApiChatPostMessageRequest::new(channel.clone(), message.render_template());
 
-            // let res = self
-            //     .slack_client
-            //     .run_in_session(|s|async move {
-            //         let req = req;
-            //         s.chat_post_message(&req) })
-            //     .await
-            //     .await
-            //     .await;
-
             let session = slack_client.client.open_session(&slack_client.token);
 
             let res = session.chat_post_message(&req).await;
-
-            // match res {
-            //     Ok(_) => Ok(()),
-            //     Err(err) => Err(anyhow!("could not post message: {}", err)),
-            // };
-
-            ()
         }
-        .into_actor(self);
-
-        ctx.wait(x);
-        // Box::pin(x)
-        // let x = Box::pin(
-        //     async { 42 }
-        //         .into_actor(self)
-        //         .map(|_, this, _| this.on_init(msg.content)),
-        // );
-        // x
+        .into_actor(self));
     }
 }
 
