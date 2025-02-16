@@ -1,4 +1,6 @@
 pub mod birthday;
+pub mod birthday_actor;
+pub mod birthday_actors;
 pub mod hey;
 
 use crate::actor::{SkjeraSlackInteractionHandler, SlackInteractionHandlers, SlackInteractionId};
@@ -14,6 +16,29 @@ use tracing::{debug, info, instrument, warn};
 
 pub(crate) type SlackClientSession<'a> =
     slack_morphism::SlackClientSession<'a, SlackClientHyperHttpsConnector>;
+// pub(crate) type SlackClient =
+//     slack_morphism::SlackClient<SlackClientHyperHttpsConnector>;
+
+pub(crate) type SlackClient = SlackClientWrapper;
+
+#[derive(Clone)]
+pub(crate) struct SlackClientWrapper {
+    pub(crate) client: slack_morphism::SlackClient<SlackClientHyperHttpsConnector>,
+    pub(crate) token: SlackApiToken,
+}
+
+// impl<'a> SlackClientWrapper {
+//     pub(crate) async fn run_in_session<'b, FN, F, T>(&self, f: FN) -> T
+//     where
+//         FN: Fn(SlackClientSession<'b>) -> F,
+//         F: std::future::Future<Output = T>,
+//     {
+//         // let session = self.client.open_session::<'a>(&self.token);
+//         // f(session)
+//
+//         self.client.run_in_session::<'b>(&self.token.clone(), f).await
+//     }
+// }
 
 pub(crate) enum SlackHandlerResponse {
     Handled,
@@ -24,7 +49,6 @@ pub(crate) enum SlackHandlerResponse {
 pub(crate) trait SlackHandler {
     async fn handle(
         &mut self,
-        session: &SlackClientSession,
         sender: &SlackUserId,
         channel: &SlackChannelId,
         content: &String,
@@ -36,8 +60,7 @@ where
     Db: Database,
     Pool<Db>: Clone,
 {
-    client: Arc<SlackClient<SlackClientHyperHttpsConnector>>,
-    token: SlackApiToken,
+    client: Arc<SlackClient>,
     pool: Pool<Db>,
     handlers: Vec<Arc<Mutex<dyn SlackHandler + Send + Sync>>>,
     slack_interaction_handlers: SlackInteractionHandlers,
@@ -50,7 +73,6 @@ where
     fn clone(&self) -> Self {
         Self {
             client: self.client.clone(),
-            token: self.token.clone(),
             pool: self.pool.clone(),
             handlers: self.handlers.clone(),
             slack_interaction_handlers: self.slack_interaction_handlers.clone(),
@@ -64,15 +86,13 @@ where
     Pool<Db>: Clone,
 {
     pub fn new(
-        client: Arc<SlackClient<SlackClientHyperHttpsConnector>>,
-        token: SlackApiToken,
+        client: Arc<SlackClient>,
         pool: Pool<Db>,
         handlers: Vec<Arc<Mutex<dyn SlackHandler + Send + Sync>>>,
         slack_interaction_handlers: SlackInteractionHandlers,
     ) -> Self {
         SkjeraBot {
             client,
-            token,
             pool,
             handlers,
             slack_interaction_handlers,
@@ -164,15 +184,8 @@ where
 
                 info!("got message: {:?}", event.clone());
 
-                let token = self.token.clone();
-                let session = self.client.open_session(&token);
-
                 for h in self.handlers.iter() {
-                    let r = h
-                        .lock()
-                        .await
-                        .handle(&session, &sender, &channel, &content)
-                        .await;
+                    let r = h.lock().await.handle(&sender, &channel, &content).await;
                     match r {
                         SlackHandlerResponse::NotHandled => {}
                         SlackHandlerResponse::Handled => return,

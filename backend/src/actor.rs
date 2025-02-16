@@ -1,8 +1,8 @@
-use std::fmt::{Display, Formatter};
 use anyhow::{anyhow, Error};
 use async_trait::async_trait;
 use slack_morphism::events::SlackInteractionBlockActionsEvent;
 use slack_morphism::SlackActionId;
+use std::fmt::{Display, Formatter};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use uuid::Uuid;
@@ -40,7 +40,13 @@ impl SlackInteractionHandlers {
 }
 
 #[derive(Debug, Clone)]
-pub struct SlackInteractionId(pub uuid::Uuid);
+pub struct SlackInteractionId(pub Uuid);
+
+impl SlackInteractionId {
+    pub(crate) fn random() -> Self {
+        SlackInteractionId(Uuid::now_v7())
+    }
+}
 
 impl From<SlackInteractionId> for SlackActionId {
     fn from(id: SlackInteractionId) -> Self {
@@ -48,7 +54,7 @@ impl From<SlackInteractionId> for SlackActionId {
     }
 }
 
-impl Display for SlackInteractionId{
+impl Display for SlackInteractionId {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         self.0.fmt(f)
     }
@@ -75,7 +81,7 @@ impl SlackInteractionHandlers {
         &mut self,
         handler: Arc<dyn SkjeraSlackInteractionHandler + Send + Sync>,
     ) -> SlackInteractionId {
-        let id = SlackInteractionId(uuid::Uuid::now_v7());
+        let id = SlackInteractionId(Uuid::now_v7());
 
         self.handlers
             .lock()

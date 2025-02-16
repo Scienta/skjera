@@ -50,7 +50,7 @@ fn create_slack(app: &ServerImpl) -> Result<Router<ServerImpl>> {
         };
 
     let listener_environment: Arc<SlackHyperListenerEnvironment> = Arc::new(
-        SlackClientEventsListenerEnvironment::new(slack_client)
+        SlackClientEventsListenerEnvironment::new(Arc::new(slack_client.client.clone()))
             .with_error_handler(slack_error_handler),
     );
 
