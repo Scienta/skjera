@@ -1,3 +1,4 @@
+use crate::bot::SlackHandlerResponse::NotHandled;
 use crate::bot::{SlackClient, SlackHandler, SlackHandlerResponse};
 use async_trait::async_trait;
 use slack_morphism::prelude::*;
@@ -74,15 +75,23 @@ impl HeyHandler {
 impl SlackHandler for HeyHandler {
     async fn handle(
         &mut self,
-        sender: &SlackUserId,
-        channel: &SlackChannelId,
-        content: &String,
+        _: &SlackPushEventCallback,
+        body: &SlackMessageEvent,
     ) -> SlackHandlerResponse {
+        let (sender, channel, content) = match (
+            body.sender.user.clone(),
+            body.origin.channel.clone(),
+            body.content.clone().and_then(|c| c.text),
+        ) {
+            (Some(sender), Some(channel), Some(content)) => (sender, channel, content),
+            _ => return NotHandled,
+        };
+
         if !content.starts_with("hey") {
-            return SlackHandlerResponse::NotHandled;
+            return NotHandled;
         }
 
-        self.on_msg(sender, channel, content).await;
+        self.on_msg(&sender, &channel, &content).await;
 
         SlackHandlerResponse::Handled
     }

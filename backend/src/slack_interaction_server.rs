@@ -1,8 +1,5 @@
 use actix::dev::{MessageResponse, OneshotSender};
-use actix::{
-    Actor, ActorFutureExt, AsyncContext, Context, Handler, Message, Recipient, ResponseActFuture,
-    WrapFuture,
-};
+use actix::{Actor, Context, Handler, Message, Recipient};
 use anyhow::{anyhow, Error};
 use slack_morphism::events::SlackInteractionBlockActionsEvent;
 use slack_morphism::prelude::SlackInteractionActionInfo;

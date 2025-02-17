@@ -18,6 +18,7 @@ impl BirthdayHandler {
 
     async fn fake_birthday(
         &mut self,
+        slack_network_id: SlackTeamId,
         channel: &SlackChannelId,
         content: &String,
     ) -> anyhow::Result<()> {
@@ -37,6 +38,7 @@ impl BirthdayHandler {
         let _x = addr
             .send(birthday_actor::Init {
                 content: content.clone(),
+                slack_network_id,
             })
             .await?;
 
@@ -50,10 +52,17 @@ impl BirthdayHandler {
 impl SlackHandler for BirthdayHandler {
     async fn handle(
         self: &mut Self,
-        _sender: &SlackUserId,
-        channel: &SlackChannelId,
-        content: &String,
+        event: &SlackPushEventCallback,
+        body: &SlackMessageEvent,
     ) -> SlackHandlerResponse {
+        let (channel, content) = match (
+            body.origin.channel.clone(),
+            body.content.clone().and_then(|s| s.text),
+        ) {
+            (Some(channel), Some(content)) => (channel, content),
+            _ => return NotHandled,
+        };
+
         let words: Vec<&str> = content.split_whitespace().collect();
 
         let first = words.get(0);
@@ -64,7 +73,10 @@ impl SlackHandler for BirthdayHandler {
                 let (_, content) = words.split_at(2);
                 let content = content.join(" ");
 
-                match self.fake_birthday(channel, &content).await {
+                match self
+                    .fake_birthday(event.team_id.clone(), &channel, &content)
+                    .await
+                {
                     Ok(_) => (),
                     Err(e) => warn!("fake birthday error: {}", e),
                 }

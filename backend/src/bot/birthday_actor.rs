@@ -8,8 +8,6 @@ use slack_morphism::prelude::*;
 use std::sync::Arc;
 use tracing::{info, instrument, warn};
 
-const SCIENTA_SLACK_NETWORK_ID: &str = "T03S4JU33";
-
 pub(crate) struct BirthdayActor {
     dao: Dao,
     birthday_assistant: BirthdayAssistant,
@@ -45,6 +43,7 @@ impl Actor for BirthdayActor {
 #[rtype(result = "()")]
 pub struct Init {
     pub(crate) content: String,
+    pub(crate) slack_network_id: SlackTeamId,
 }
 
 impl Handler<Init> for BirthdayActor {
@@ -86,7 +85,7 @@ impl Handler<Init> for BirthdayActor {
                                 .some_account_for_network(
                                     e.id,
                                     SLACK.0.clone(),
-                                    Some(SCIENTA_SLACK_NETWORK_ID.to_string()),
+                                    Some(msg.slack_network_id.to_string()),
                                 )
                                 .await
                             {

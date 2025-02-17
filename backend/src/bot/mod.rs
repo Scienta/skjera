@@ -49,9 +49,8 @@ pub(crate) enum SlackHandlerResponse {
 pub(crate) trait SlackHandler {
     async fn handle(
         &mut self,
-        sender: &SlackUserId,
-        channel: &SlackChannelId,
-        content: &String,
+        event: &SlackPushEventCallback,
+        body: &SlackMessageEvent,
     ) -> SlackHandlerResponse;
 }
 
@@ -103,8 +102,8 @@ where
     pub(crate) async fn on_event<'a>(self: &Self, event: SlackPushEventCallback) -> Response {
         info!("Received slack push event");
 
-        match event.event {
-            SlackEventCallbackBody::Message(event) => self.on_message(event).await,
+        match event.event.clone() {
+            SlackEventCallbackBody::Message(body) => self.on_message(event, body).await,
             // SlackEventCallbackBody::AppMention(event) => on_app_mention(event),
             _ => {
                 warn!("unhandled");
@@ -128,23 +127,9 @@ where
         (StatusCode::OK, "got it!").into_response()
     }
 
-    async fn on_message<'a>(self: &Self, event: SlackMessageEvent) {
-        let content = event.content.clone().and_then(|c| c.text);
-
-        match (
-            &event.sender.user,
-            &event.sender.bot_id,
-            &event.origin.channel,
-            &event.origin.channel_type,
-            content,
-        ) {
-            (
-                Some(sender),
-                bot_id,
-                Some(channel),
-                Some(SlackChannelType(channel_type)),
-                Some(content),
-            ) => {
+    async fn on_message<'a>(self: &Self, event: SlackPushEventCallback, body: SlackMessageEvent) {
+        match (&body.sender.bot_id, &body.origin.channel_type) {
+            (bot_id, Some(SlackChannelType(channel_type))) => {
                 if channel_type != "im" {
                     return;
                 }
@@ -155,10 +140,10 @@ where
                     return;
                 }
 
-                info!("got message: {:?}", event.clone());
+                info!("got message: {:?}", body.clone());
 
                 for h in self.handlers.iter() {
-                    let r = h.lock().await.handle(&sender, &channel, &content).await;
+                    let r = h.lock().await.handle(&event, &body).await;
                     match r {
                         SlackHandlerResponse::NotHandled => {}
                         SlackHandlerResponse::Handled => return,
