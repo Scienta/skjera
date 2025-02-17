@@ -1,45 +1,78 @@
+use actix::dev::{MessageResponse, OneshotSender};
+use actix::{Actor, Context, Handler, Message, Recipient};
 use anyhow::{anyhow, Error};
-use async_trait::async_trait;
 use slack_morphism::events::SlackInteractionBlockActionsEvent;
 use slack_morphism::SlackActionId;
+use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
-use std::sync::Arc;
-use tokio::sync::Mutex;
+use tracing::info;
 use uuid::Uuid;
 
-#[async_trait]
-pub trait SkjeraSlackInteractionHandler {
-    async fn on_slack_interaction(self: &Self, event: &SlackInteractionBlockActionsEvent);
+pub struct SlackInteractionActor {
+    handlers: HashMap<SlackInteractionId, Recipient<OnInteraction>>,
 }
 
-#[derive(Clone)]
-pub struct SlackInteractionHandlers {
-    handlers: Arc<Mutex<Vec<SlackInteractionRegistration>>>,
+impl Actor for SlackInteractionActor {
+    type Context = Context<Self>;
 }
 
-impl SlackInteractionHandlers {
-    pub(crate) async fn get_handler(
-        &self,
-        id: SlackInteractionId,
-    ) -> Option<Arc<dyn SkjeraSlackInteractionHandler + Send + Sync>> {
-        self.handlers
-            .lock()
-            .await
-            .iter()
-            .find(|h| h.id.0 == id.0)
-            .map(|h| h.handler.clone())
-    }
-}
-
-impl SlackInteractionHandlers {
-    pub(crate) fn new() -> SlackInteractionHandlers {
-        SlackInteractionHandlers {
-            handlers: Arc::new(Mutex::new(Vec::new())),
+impl SlackInteractionActor {
+    pub(crate) fn new() -> SlackInteractionActor {
+        SlackInteractionActor {
+            handlers: HashMap::new(),
         }
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Message)]
+#[rtype(result = "AddInteractionResponse")]
+pub struct AddInteraction {
+    pub(crate) recipient: Recipient<OnInteraction>,
+}
+
+pub struct AddInteractionResponse {
+    pub(crate) interaction_id: SlackInteractionId,
+}
+
+impl<A, M> MessageResponse<A, M> for AddInteractionResponse
+where
+    A: Actor,
+    M: Message<Result = AddInteractionResponse>,
+{
+    fn handle(self, _ctx: &mut A::Context, tx: Option<OneshotSender<M::Result>>) {
+        if let Some(tx) = tx {
+            let _ = tx.send(self);
+        }
+    }
+}
+
+impl Handler<AddInteraction> for SlackInteractionActor {
+    type Result = AddInteractionResponse;
+
+    fn handle(&mut self, msg: AddInteraction, _ctx: &mut Self::Context) -> Self::Result {
+        let interaction_id = SlackInteractionId::random();
+
+        self.handlers.insert(interaction_id.clone(), msg.recipient);
+
+        AddInteractionResponse { interaction_id }
+    }
+}
+
+#[derive(Message)]
+#[rtype(result = "()")]
+pub struct OnInteraction {
+    pub(crate) event: SlackInteractionBlockActionsEvent,
+}
+
+impl Handler<OnInteraction> for SlackInteractionActor {
+    type Result = ();
+
+    fn handle(&mut self, msg: OnInteraction, _ctx: &mut Self::Context) -> Self::Result {
+        info!("Handling interaction event: {:?}", msg.event);
+    }
+}
+
+#[derive(Debug, Clone, Eq, Hash, PartialEq)]
 pub struct SlackInteractionId(pub Uuid);
 
 impl SlackInteractionId {
@@ -67,30 +100,5 @@ impl TryFrom<SlackActionId> for SlackInteractionId {
         Uuid::parse_str(&value.0)
             .map(SlackInteractionId)
             .map_err(|e| anyhow!(e))
-    }
-}
-
-#[derive(Clone)]
-struct SlackInteractionRegistration {
-    id: SlackInteractionId,
-    handler: Arc<dyn SkjeraSlackInteractionHandler + Send + Sync>,
-}
-
-impl SlackInteractionHandlers {
-    pub(crate) async fn add_handler(
-        &mut self,
-        handler: Arc<dyn SkjeraSlackInteractionHandler + Send + Sync>,
-    ) -> SlackInteractionId {
-        let id = SlackInteractionId(Uuid::now_v7());
-
-        self.handlers
-            .lock()
-            .await
-            .push(SlackInteractionRegistration {
-                id: id.clone(),
-                handler,
-            });
-
-        id
     }
 }

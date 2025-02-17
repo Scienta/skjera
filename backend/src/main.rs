@@ -12,7 +12,7 @@ mod skjera;
 mod slack_client;
 mod web;
 
-use crate::actor::SlackInteractionHandlers;
+use crate::actor::SlackInteractionActor;
 use crate::birthday_assistant::BirthdayAssistant;
 use crate::bot::birthday::BirthdayHandler;
 use crate::bot::birthdays_actor::BirthdaysActor;
@@ -136,7 +136,7 @@ async fn main2() {
         None => None,
     };
 
-    let slack_interaction_handlers = SlackInteractionHandlers::new();
+    let slack_interaction_actor = SlackInteractionActor::new().start();
 
     // TODO: Rename to BIRTHDAY_ASSISTANT
     let birthday_bot = env::var("BIRTHDAY_BOT")
@@ -147,7 +147,7 @@ async fn main2() {
         pool.clone(),
         dao.clone(),
         birthday_bot.clone(),
-        slack_interaction_handlers.clone(),
+        slack_interaction_actor.clone(),
         &cfg.slack_config,
     ) {
         Ok(x) => x,
@@ -165,7 +165,7 @@ async fn main2() {
         employee_dao: dao,
         slack_connect,
         birthday_bot,
-        slack_interaction_handlers,
+        // slack_interaction_actor,
     };
 
     // let tracer = tracer("my_tracer");
@@ -195,7 +195,7 @@ fn configure_slack(
     pool: Pool<Postgres>,
     dao: Dao,
     birthday_assistant: Option<BirthdayAssistant>,
-    slack_interaction_handlers: SlackInteractionHandlers,
+    slack_interaction_actor: Addr<SlackInteractionActor>,
     slack_config: &Option<SlackConfig>,
 ) -> anyhow::Result<(
     Option<Arc<SlackClient>>,
@@ -219,7 +219,7 @@ fn configure_slack(
         let birthdays_addr = BirthdaysActor::new(
             dao,
             birthday_assistant,
-            slack_interaction_handlers.clone(),
+            slack_interaction_actor.clone(),
             slack_client.clone(),
         )
         .start();
@@ -235,7 +235,7 @@ fn configure_slack(
             slack_client.clone(),
             pool,
             handlers,
-            slack_interaction_handlers,
+            slack_interaction_actor,
         );
 
         Ok((Some(slack_client), Some(bot), Some(birthdays_addr)))
@@ -261,7 +261,7 @@ struct ServerImpl {
     pub employee_dao: Dao,
     pub slack_connect: Option<SlackConnect>,
     pub birthday_bot: Option<BirthdayAssistant>,
-    pub slack_interaction_handlers: SlackInteractionHandlers,
+    // pub slack_interaction_actor: Addr<SlackInteractionActor>,
 }
 
 impl ServerImpl {

@@ -1,4 +1,4 @@
-use crate::actor::SlackInteractionHandlers;
+use crate::actor::SlackInteractionActor;
 use crate::birthday_assistant::BirthdayAssistant;
 use crate::bot::birthday_actor::BirthdayActor;
 use crate::bot::SlackClient;
@@ -11,7 +11,7 @@ use tracing::{info, instrument};
 pub(crate) struct BirthdaysActor {
     dao: Dao,
     birthday_assistant: BirthdayAssistant,
-    slack_interaction_handlers: SlackInteractionHandlers,
+    slack_interaction_actor: Addr<SlackInteractionActor>,
     slack_client: Arc<SlackClient>,
 }
 
@@ -25,13 +25,13 @@ impl BirthdaysActor {
     pub fn new(
         dao: Dao,
         birthday_assistant: BirthdayAssistant,
-        slack_interaction_handlers: SlackInteractionHandlers,
+        slack_interaction_actor: Addr<SlackInteractionActor>,
         slack_client: Arc<SlackClient>,
     ) -> Self {
         Self {
             dao,
             birthday_assistant,
-            slack_interaction_handlers,
+            slack_interaction_actor,
             slack_client,
         }
     }
@@ -50,7 +50,7 @@ impl Handler<CreateBirthdayActor> for BirthdaysActor {
         BirthdayActor::new(
             self.dao.clone(),
             self.birthday_assistant.clone(),
-            self.slack_interaction_handlers.clone(),
+            self.slack_interaction_actor.clone(),
             self.slack_client.clone(),
             msg.channel,
         )
