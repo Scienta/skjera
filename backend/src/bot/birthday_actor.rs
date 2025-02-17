@@ -54,6 +54,9 @@ impl Handler<Init> for BirthdayActor {
 
     #[instrument(skip(self))]
     fn handle(&mut self, msg: Init, ctx: &mut Self::Context) -> Self::Result {
+        // TODO: there really should be a way of not having to extract all this stuff here
+        // Look into ctx.wait()
+
         let dao = self.dao.clone();
         let channel = self.channel.clone();
         let slack_client = self.slack_client.clone();
