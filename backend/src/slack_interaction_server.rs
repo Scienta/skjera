@@ -1,5 +1,8 @@
 use actix::dev::{MessageResponse, OneshotSender};
-use actix::{Actor, Context, Handler, Message, Recipient};
+use actix::{
+    Actor, ActorFutureExt, AsyncContext, Context, Handler, Message, Recipient, ResponseActFuture,
+    WrapFuture,
+};
 use anyhow::{anyhow, Error};
 use slack_morphism::events::SlackInteractionBlockActionsEvent;
 use slack_morphism::prelude::SlackInteractionActionInfo;
@@ -75,13 +78,27 @@ impl Handler<OnInteractionActions> for SlackInteractionServer {
     type Result = ();
 
     fn handle(&mut self, msg: OnInteractionActions, _ctx: &mut Self::Context) -> Self::Result {
-        info!("Handling interaction action: {:?}", msg.event);
+        info!("Handling interaction action");
 
         for action in msg.event.actions.clone().unwrap_or_default().iter() {
             if let Ok(interaction_id) = action.clone().action_id.try_into() {
                 match self.handlers.get(&interaction_id) {
                     Some(recipient) => {
-                        let _ = recipient.send(OnInteractionAction { event: action.clone() });
+                        recipient.do_send(OnInteractionAction {
+                            event: action.clone(),
+                        });
+
+                        // _ctx.wait(async {
+                        //     match recipient
+                        //         .send(OnInteractionAction {
+                        //             event: action.clone(),
+                        //         })
+                        //         .await
+                        //     {
+                        //         Err(err) => warn!("Could not send interaction action: {}", err),
+                        //         _ => (),
+                        //     };
+                        // });
                     }
                     None => {
                         warn!(

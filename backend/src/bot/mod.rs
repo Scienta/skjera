@@ -120,9 +120,10 @@ where
         self: &Self,
         event: SlackInteractionBlockActionsEvent,
     ) -> Response {
-        info!("Received slack interaction event: {:?}", event);
+        info!("Received slack interaction event");
 
-        let _ = self.slack_interaction_actor.send(OnInteractionActions { event });
+        self.slack_interaction_actor
+            .do_send(OnInteractionActions { event });
 
         (StatusCode::OK, "got it!").into_response()
     }
