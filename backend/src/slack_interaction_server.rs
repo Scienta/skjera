@@ -1,6 +1,5 @@
-use actix::dev::{MessageResponse, OneshotSender};
-use actix::{Actor, Context, Handler, Message, Recipient};
 use anyhow::{anyhow, Error};
+use riker::actors::*;
 use slack_morphism::events::SlackInteractionBlockActionsEvent;
 use slack_morphism::prelude::SlackInteractionActionInfo;
 use slack_morphism::SlackActionId;
@@ -9,12 +8,9 @@ use std::fmt::{Display, Formatter};
 use tracing::{info, warn};
 use uuid::Uuid;
 
+#[actor(AddInteraction, OnInteractionActions)]
 pub struct SlackInteractionServer {
-    handlers: HashMap<SlackInteractionId, Recipient<OnInteractionAction>>,
-}
-
-impl Actor for SlackInteractionServer {
-    type Context = Context<Self>;
+    handlers: HashMap<SlackInteractionId, ActorRef<OnInteractionAction>>,
 }
 
 impl SlackInteractionServer {
@@ -25,56 +21,58 @@ impl SlackInteractionServer {
     }
 }
 
-#[derive(Message)]
-#[rtype(result = "AddInteractionResponse")]
-pub struct AddInteraction {
-    pub(crate) recipient: Recipient<OnInteractionAction>,
+impl Default for SlackInteractionServer {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
+impl Actor for SlackInteractionServer {
+    type Msg = SlackInteractionServerMsg;
+
+    fn recv(&mut self, ctx: &Context<Self::Msg>, msg: Self::Msg, sender: Sender) {
+        self.receive(ctx, msg, sender);
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct AddInteraction {
+    pub(crate) recipient: ActorRef<OnInteractionAction>,
+}
+
+#[derive(Clone, Debug)]
 pub struct AddInteractionResponse {
     pub(crate) interaction_id: SlackInteractionId,
 }
 
-impl<A, M> MessageResponse<A, M> for AddInteractionResponse
-where
-    A: Actor,
-    M: Message<Result = AddInteractionResponse>,
-{
-    fn handle(self, _ctx: &mut A::Context, tx: Option<OneshotSender<M::Result>>) {
-        if let Some(tx) = tx {
-            let _ = tx.send(self);
-        }
-    }
-}
+impl Receive<AddInteraction> for SlackInteractionServer {
+    type Msg = SlackInteractionServerMsg;
 
-impl Handler<AddInteraction> for SlackInteractionServer {
-    type Result = AddInteractionResponse;
-
-    fn handle(&mut self, msg: AddInteraction, _ctx: &mut Self::Context) -> Self::Result {
+    fn receive(&mut self, ctx: &Context<Self::Msg>, msg: AddInteraction, sender: Sender) {
         let interaction_id = SlackInteractionId::random();
 
         self.handlers.insert(interaction_id.clone(), msg.recipient);
 
-        AddInteractionResponse { interaction_id }
+        let _ = sender
+            .unwrap()
+            .try_tell(AddInteractionResponse { interaction_id }, ctx.myself.clone());
     }
 }
 
-#[derive(Message)]
-#[rtype(result = "()")]
+#[derive(Clone, Debug)]
 pub struct OnInteractionActions {
     pub(crate) event: SlackInteractionBlockActionsEvent,
 }
 
-#[derive(Message)]
-#[rtype(result = "()")]
+#[derive(Clone, Debug)]
 pub struct OnInteractionAction {
     pub(crate) event: SlackInteractionActionInfo,
 }
 
-impl Handler<OnInteractionActions> for SlackInteractionServer {
-    type Result = ();
+impl Receive<OnInteractionActions> for SlackInteractionServer {
+    type Msg = SlackInteractionServerMsg;
 
-    fn handle(&mut self, msg: OnInteractionActions, _ctx: &mut Self::Context) -> Self::Result {
+    fn receive(&mut self, _ctx: &Context<Self::Msg>, msg: OnInteractionActions, _sender: Sender) {
         info!("Handling interaction action");
 
         for action in msg.event.actions.clone().unwrap_or_default().iter() {

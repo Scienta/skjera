@@ -1,29 +1,44 @@
 use crate::birthday_assistant::BirthdayAssistant;
-use crate::model::{Dao, EmployeeDao, SLACK};
+use crate::bot::birthdays_actor::BirthdaysActor;
+use crate::model::{Dao, Employee, EmployeeDao};
 use crate::slack_interaction_server::{
     AddInteraction, OnInteractionAction, SlackInteractionId, SlackInteractionServer,
+    SlackInteractionServerMsg,
 };
-use actix::prelude::*;
+use riker::actors::*;
 use slack_morphism::prelude::*;
 use std::sync::Arc;
-use tracing::{info, instrument, warn};
+use riker_patterns::ask::ask;
+use tracing::{info, warn};
 
+#[actor(Init, OnInteractionAction)]
 pub(crate) struct BirthdayActor {
     dao: Dao,
     birthday_assistant: BirthdayAssistant,
-    slack_interaction_actor: Addr<SlackInteractionServer>,
+    slack_interaction_actor: ActorRef<<SlackInteractionServer as Actor>::Msg>,
 
     slack_client: Arc<crate::bot::SlackClient>,
     channel: SlackChannelId,
+    employee: Option<Employee>,
 }
 
-impl BirthdayActor {
-    pub fn new(
-        dao: Dao,
-        birthday_assistant: BirthdayAssistant,
-        slack_interaction_actor: Addr<SlackInteractionServer>,
-        slack_client: Arc<crate::bot::SlackClient>,
-        channel: SlackChannelId,
+impl
+    ActorFactoryArgs<(
+        Dao,
+        BirthdayAssistant,
+        ActorRef<<SlackInteractionServer as Actor>::Msg>,
+        Arc<crate::bot::SlackClient>,
+        SlackChannelId,
+    )> for BirthdayActor
+{
+    fn create_args(
+        (dao, birthday_assistant, slack_interaction_actor, slack_client, channel): (
+            Dao,
+            BirthdayAssistant,
+            ActorRef<<SlackInteractionServer as Actor>::Msg>,
+            Arc<crate::bot::SlackClient>,
+            SlackChannelId,
+        ),
     ) -> Self {
         Self {
             dao,
@@ -31,28 +46,30 @@ impl BirthdayActor {
             slack_interaction_actor,
             slack_client,
             channel,
+
+            employee: None,
         }
     }
 }
 
 impl Actor for BirthdayActor {
-    type Context = Context<Self>;
+    type Msg = BirthdayActorMsg;
+
+    fn recv(&mut self, ctx: &Context<Self::Msg>, msg: Self::Msg, sender: Sender) {
+        self.receive(ctx, msg, sender);
+    }
 }
 
-#[derive(Message, Debug)]
-#[rtype(result = "()")]
+#[derive(Clone, Debug)]
 pub struct Init {
     pub(crate) content: String,
     pub(crate) slack_network_id: SlackTeamId,
 }
 
-impl Handler<Init> for BirthdayActor {
-    // type Result = ResponseActFuture<Self, ()>;
-    // type Result = ResponseFuture<()>;
-    type Result = ();
+impl Receive<Init> for BirthdayActor {
+    type Msg = BirthdayActorMsg;
 
-    #[instrument(skip(self))]
-    fn handle(&mut self, msg: Init, ctx: &mut Self::Context) -> Self::Result {
+    fn receive(&mut self, ctx: &Context<Self::Msg>, msg: Init, sender: Sender) {
         // TODO: there really should be a way of not having to extract all this stuff here
         // Look into ctx.wait()
 
@@ -61,73 +78,103 @@ impl Handler<Init> for BirthdayActor {
         let slack_client = self.slack_client.clone();
         let content = msg.content;
 
-        let x = self
-            .slack_interaction_actor
-            .send(AddInteraction {
-                recipient: ctx.address().recipient(),
-            })
-            .into_actor(self)
-            .then(|interaction_id, _this, _ctx| {
-                let interaction_id = interaction_id.unwrap().interaction_id;
+        let add_interaction = AddInteraction {
+            recipient: ctx.myself.clone() as ActorRef<OnInteractionAction>,
+        };
 
-                info!("interaction_id: {:?}", interaction_id);
+        ctx.run(async move {
+            ask(ctx, &self.slack_interaction_actor, add_interaction).await
+        }).map(|interaction_id| {
+            let interaction_id = interaction_id.unwrap().interaction_id;
 
-                let y = async move {
-                    info!("got message: {:?}", content);
+            info!("interaction_id: {:?}", interaction_id);
 
-                    let username = content;
+            async fn y(
+                interaction_id: SlackInteractionId,
+                content: String,
+                dao: Dao,
+                msg: Init,
+                channel: SlackChannelId,
+                slack_client: Arc<crate::bot::SlackClient>,
+            ) -> Option<Employee> {
+                info!("got message: {:?}", content);
 
-                    // let interaction_id = SlackInteractionId::random();
+                let username = content;
 
-                    let user_id = match dao.employee_by_name(username.clone()).await {
-                        Ok(Some(e)) => {
-                            match dao
-                                .some_account_for_network(
-                                    e.id,
-                                    SLACK.0.clone(),
-                                    Some(msg.slack_network_id.to_string()),
-                                )
-                                .await
-                            {
-                                Ok(Some(account)) => Ok(account.subject.map(SlackUserId).unwrap()),
-                                Ok(None) => Err(username.clone()),
-                                Err(e) => return warn!("unable to query: {}", e),
-                            }
-                        }
-                        Ok(None) => Err(username.clone()),
-                        // Err(e) => Err(anyhow!("unable to query: {}", e)),
-                        Err(e) => return warn!("unable to query: {}", e),
-                    };
+                // let interaction_id = SlackInteractionId::random();
 
-                    let message = BirthdayMessage {
-                        username,
-                        user_id,
-                        interaction_id,
-                    };
+                let employee = dao.employee_by_name(username.clone()).await.ok().flatten();
 
-                    let req = SlackApiChatPostMessageRequest::new(
-                        channel.clone(),
-                        message.render_template(),
-                    );
+                // let user_id = match dao.employee_by_name(username.clone()).await {
+                //     Ok(Some(e)) => {
+                //         match dao
+                //             .some_account_for_network(
+                //                 e.id,
+                //                 SLACK.0.clone(),
+                //                 Some(msg.slack_network_id.to_string()),
+                //             )
+                //             .await
+                //         {
+                //             Ok(Some(account)) => Ok(account.subject.map(SlackUserId).unwrap()),
+                //             Ok(None) => Err(username.clone()),
+                //             Err(e) => return warn!("unable to query: {}", e),
+                //         }
+                //     }
+                //     Ok(None) => Err(username.clone()),
+                //     // Err(e) => Err(anyhow!("unable to query: {}", e)),
+                //     Err(e) => return warn!("unable to query: {}", e),
+                // };
 
-                    let session = slack_client.client.open_session(&slack_client.token);
-
-                    let _res = session.chat_post_message(&req).await;
+                let message = BirthdayMessage {
+                    username,
+                    user_id: Err("not found".to_owned()),
+                    interaction_id,
                 };
 
-                Box::pin(y).into_actor(_this)
-            });
+                let req = SlackApiChatPostMessageRequest::new(
+                    channel.clone(),
+                    message.render_template(),
+                );
 
-        // Box::pin(x)
-        ctx.wait(x);
+                let session = slack_client.client.open_session(&slack_client.token);
+
+                let _res = session.chat_post_message(&req).await;
+
+                employee
+            }
+        })
     }
 }
 
-impl Handler<OnInteractionAction> for BirthdayActor {
-    type Result = ();
+impl Receive<OnInteractionAction> for BirthdayActor {
+    type Msg = BirthdayActorMsg;
 
-    fn handle(&mut self, msg: OnInteractionAction, _ctx: &mut Self::Context) -> Self::Result {
-        info!("got interaction block action: {:?}", msg.event);
+    fn receive(&mut self, ctx: &Context<Self::Msg>, msg: OnInteractionAction, _sender: Sender) {
+        info!("got interaction block action: {:?}", msg.event.clone());
+
+        let employee = self.employee.clone();
+        let value = msg.event.value.clone();
+        let birthday_assistant = self.birthday_assistant.clone();
+
+        ctx.wait(
+            async move {
+                match value {
+                    Some(s) if s == "generate-message" => {
+                        info!("generating message");
+                        match employee {
+                            None => info!("no employee found"),
+                            Some(employee) => {
+                                match birthday_assistant.create_message(&employee).await {
+                                    Ok(message) => info!("New birthday message: {}", message),
+                                    Err(e) => warn!("unable to create message: {}", e),
+                                }
+                            }
+                        }
+                    }
+                    _ => (),
+                };
+            },
+        )
     }
 }
 
@@ -155,6 +202,7 @@ impl SlackMessageTemplate for BirthdayMessage {
                     self.interaction_id.clone().into(),
                     pt!("Generate message")
                 )
+                .with_value("generate-message".to_string())
             )]))
         ])
     }

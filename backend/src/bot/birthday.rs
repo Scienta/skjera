@@ -1,50 +1,29 @@
-use crate::bot::birthdays_actor::{BirthdaysActor, CreateBirthdayActor};
+use crate::bot::birthday_actor::BirthdayActorMsg;
+use crate::bot::birthdays_actor::{BirthdaysActor, BirthdaysActorMsg, CreateBirthdayActor};
 use crate::bot::{birthday_actor, SlackHandler, SlackHandlerResponse};
-use actix::prelude::*;
 use async_trait::async_trait;
+use futures_util::future::RemoteHandle;
+use riker::actors::*;
+use riker_patterns::ask::ask;
 use slack_morphism::prelude::*;
-use tracing::{info, warn};
+use tracing::info;
 use SlackHandlerResponse::*;
 
 #[derive(Clone)]
 pub(crate) struct BirthdayHandler {
-    birthdays_actor: Addr<BirthdaysActor>,
+    system: ActorSystem,
+    birthdays_actor: ActorRef<<BirthdaysActor as Actor>::Msg>,
 }
 
 impl BirthdayHandler {
-    pub(crate) fn new(birthdays_actor: Addr<BirthdaysActor>) -> BirthdayHandler {
-        Self { birthdays_actor }
-    }
-
-    async fn fake_birthday(
-        &mut self,
-        slack_network_id: SlackTeamId,
-        channel: &SlackChannelId,
-        content: &String,
-    ) -> anyhow::Result<()> {
-        let addr = self
-            .birthdays_actor
-            .send(CreateBirthdayActor {
-                channel: channel.clone(),
-            })
-            .await?;
-
-        info!(
-            "new birthday created: {:?}, connected={}",
-            addr,
-            addr.connected()
-        );
-
-        let _x = addr
-            .send(birthday_actor::Init {
-                content: content.clone(),
-                slack_network_id,
-            })
-            .await?;
-
-        info!("Birthday initialized");
-
-        Ok(())
+    pub(crate) fn new(
+        system: ActorSystem,
+        birthdays_actor: ActorRef<BirthdaysActorMsg>,
+    ) -> BirthdayHandler {
+        Self {
+            system,
+            birthdays_actor,
+        }
     }
 }
 
@@ -73,16 +52,26 @@ impl SlackHandler for BirthdayHandler {
                 let (_, content) = words.split_at(2);
                 let content = content.join(" ");
 
-                match self
-                    .fake_birthday(event.team_id.clone(), &channel, &content)
-                    .await
-                {
-                    Ok(_) => (),
-                    Err(e) => warn!("fake birthday error: {}", e),
-                }
+                let res: RemoteHandle<ActorRef<BirthdayActorMsg>> = ask(
+                    &self.system,
+                    &self.birthdays_actor,
+                    CreateBirthdayActor {
+                        channel: channel.clone(),
+                    },
+                );
 
-                // self.on_msg(session, sender.clone(), channel.clone(), content)
-                //     .await
+                let addr = res.await;
+
+                info!("new birthday created: {:?}", addr,);
+
+                addr.tell(
+                    birthday_actor::Init {
+                        content: content.clone(),
+                        slack_network_id: event.team_id.clone(),
+                    },
+                    None,
+                );
+
                 Handled
             }
             _ => NotHandled,
