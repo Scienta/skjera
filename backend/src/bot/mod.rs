@@ -3,7 +3,7 @@ pub mod birthday_actor;
 pub mod birthdays_actor;
 pub mod hey;
 
-use crate::actor::{OnInteraction, SlackInteractionActor};
+use crate::slack_interaction_server::{OnInteractionActions, SlackInteractionServer};
 use actix::Addr;
 use async_trait::async_trait;
 use axum::response::{IntoResponse, Response};
@@ -63,7 +63,7 @@ where
     client: Arc<SlackClient>,
     pool: Pool<Db>,
     handlers: Vec<Arc<Mutex<dyn SlackHandler + Send + Sync>>>,
-    slack_interaction_actor: Addr<SlackInteractionActor>,
+    slack_interaction_actor: Addr<SlackInteractionServer>,
 }
 
 impl<Db: Database + Send + Sync> Clone for SkjeraBot<Db>
@@ -89,7 +89,7 @@ where
         client: Arc<SlackClient>,
         pool: Pool<Db>,
         handlers: Vec<Arc<Mutex<dyn SlackHandler + Send + Sync>>>,
-        slack_interaction_actor: Addr<SlackInteractionActor>,
+        slack_interaction_actor: Addr<SlackInteractionServer>,
     ) -> Self {
         SkjeraBot {
             client,
@@ -122,14 +122,7 @@ where
     ) -> Response {
         info!("Received slack interaction event: {:?}", event);
 
-        for _action in event.actions.clone().unwrap_or_default().iter() {
-            let _ = self
-                .slack_interaction_actor
-                .send(OnInteraction {
-                    event: event.clone(),
-                })
-                .await;
-        }
+        let _ = self.slack_interaction_actor.send(OnInteractionActions { event });
 
         (StatusCode::OK, "got it!").into_response()
     }

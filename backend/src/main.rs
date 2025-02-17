@@ -1,4 +1,4 @@
-mod actor;
+mod slack_interaction_server;
 mod birthday_assistant;
 mod bot;
 mod logging;
@@ -12,7 +12,7 @@ mod skjera;
 mod slack_client;
 mod web;
 
-use crate::actor::SlackInteractionActor;
+use crate::slack_interaction_server::SlackInteractionServer;
 use crate::birthday_assistant::BirthdayAssistant;
 use crate::bot::birthday::BirthdayHandler;
 use crate::bot::birthdays_actor::BirthdaysActor;
@@ -136,7 +136,7 @@ async fn main2() {
         None => None,
     };
 
-    let slack_interaction_actor = SlackInteractionActor::new().start();
+    let slack_interaction_actor = SlackInteractionServer::new().start();
 
     // TODO: Rename to BIRTHDAY_ASSISTANT
     let birthday_bot = env::var("BIRTHDAY_BOT")
@@ -195,7 +195,7 @@ fn configure_slack(
     pool: Pool<Postgres>,
     dao: Dao,
     birthday_assistant: Option<BirthdayAssistant>,
-    slack_interaction_actor: Addr<SlackInteractionActor>,
+    slack_interaction_actor: Addr<SlackInteractionServer>,
     slack_config: &Option<SlackConfig>,
 ) -> anyhow::Result<(
     Option<Arc<SlackClient>>,

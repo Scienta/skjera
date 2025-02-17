@@ -2,23 +2,24 @@ use actix::dev::{MessageResponse, OneshotSender};
 use actix::{Actor, Context, Handler, Message, Recipient};
 use anyhow::{anyhow, Error};
 use slack_morphism::events::SlackInteractionBlockActionsEvent;
+use slack_morphism::prelude::SlackInteractionActionInfo;
 use slack_morphism::SlackActionId;
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
-use tracing::info;
+use tracing::{info, warn};
 use uuid::Uuid;
 
-pub struct SlackInteractionActor {
-    handlers: HashMap<SlackInteractionId, Recipient<OnInteraction>>,
+pub struct SlackInteractionServer {
+    handlers: HashMap<SlackInteractionId, Recipient<OnInteractionAction>>,
 }
 
-impl Actor for SlackInteractionActor {
+impl Actor for SlackInteractionServer {
     type Context = Context<Self>;
 }
 
-impl SlackInteractionActor {
-    pub(crate) fn new() -> SlackInteractionActor {
-        SlackInteractionActor {
+impl SlackInteractionServer {
+    pub(crate) fn new() -> SlackInteractionServer {
+        SlackInteractionServer {
             handlers: HashMap::new(),
         }
     }
@@ -27,7 +28,7 @@ impl SlackInteractionActor {
 #[derive(Message)]
 #[rtype(result = "AddInteractionResponse")]
 pub struct AddInteraction {
-    pub(crate) recipient: Recipient<OnInteraction>,
+    pub(crate) recipient: Recipient<OnInteractionAction>,
 }
 
 pub struct AddInteractionResponse {
@@ -46,7 +47,7 @@ where
     }
 }
 
-impl Handler<AddInteraction> for SlackInteractionActor {
+impl Handler<AddInteraction> for SlackInteractionServer {
     type Result = AddInteractionResponse;
 
     fn handle(&mut self, msg: AddInteraction, _ctx: &mut Self::Context) -> Self::Result {
@@ -60,15 +61,37 @@ impl Handler<AddInteraction> for SlackInteractionActor {
 
 #[derive(Message)]
 #[rtype(result = "()")]
-pub struct OnInteraction {
+pub struct OnInteractionActions {
     pub(crate) event: SlackInteractionBlockActionsEvent,
 }
 
-impl Handler<OnInteraction> for SlackInteractionActor {
+#[derive(Message)]
+#[rtype(result = "()")]
+pub struct OnInteractionAction {
+    pub(crate) event: SlackInteractionActionInfo,
+}
+
+impl Handler<OnInteractionActions> for SlackInteractionServer {
     type Result = ();
 
-    fn handle(&mut self, msg: OnInteraction, _ctx: &mut Self::Context) -> Self::Result {
-        info!("Handling interaction event: {:?}", msg.event);
+    fn handle(&mut self, msg: OnInteractionActions, _ctx: &mut Self::Context) -> Self::Result {
+        info!("Handling interaction action: {:?}", msg.event);
+
+        for action in msg.event.actions.clone().unwrap_or_default().iter() {
+            if let Ok(interaction_id) = action.clone().action_id.try_into() {
+                match self.handlers.get(&interaction_id) {
+                    Some(recipient) => {
+                        let _ = recipient.send(OnInteractionAction { event: action.clone() });
+                    }
+                    None => {
+                        warn!(
+                            "No handler registered for interaction action: {:?}",
+                            action.action_id.clone()
+                        );
+                    }
+                }
+            }
+        }
     }
 }
 

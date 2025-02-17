@@ -1,4 +1,4 @@
-use crate::actor::SlackInteractionActor;
+use crate::slack_interaction_server::SlackInteractionServer;
 use crate::birthday_assistant::BirthdayAssistant;
 use crate::bot::birthday_actor::BirthdayActor;
 use crate::bot::SlackClient;
@@ -11,7 +11,7 @@ use tracing::{info, instrument};
 pub(crate) struct BirthdaysActor {
     dao: Dao,
     birthday_assistant: BirthdayAssistant,
-    slack_interaction_actor: Addr<SlackInteractionActor>,
+    slack_interaction_actor: Addr<SlackInteractionServer>,
     slack_client: Arc<SlackClient>,
 }
 
@@ -25,7 +25,7 @@ impl BirthdaysActor {
     pub fn new(
         dao: Dao,
         birthday_assistant: BirthdayAssistant,
-        slack_interaction_actor: Addr<SlackInteractionActor>,
+        slack_interaction_actor: Addr<SlackInteractionServer>,
         slack_client: Arc<SlackClient>,
     ) -> Self {
         Self {

@@ -1,8 +1,9 @@
-use crate::actor::{AddInteraction, OnInteraction, SlackInteractionActor, SlackInteractionId};
 use crate::birthday_assistant::BirthdayAssistant;
 use crate::model::{Dao, EmployeeDao, SLACK};
+use crate::slack_interaction_server::{
+    AddInteraction, OnInteractionAction, SlackInteractionId, SlackInteractionServer,
+};
 use actix::prelude::*;
-use anyhow::anyhow;
 use slack_morphism::prelude::*;
 use std::sync::Arc;
 use tracing::{info, instrument, warn};
@@ -12,7 +13,7 @@ const SCIENTA_SLACK_NETWORK_ID: &str = "T03S4JU33";
 pub(crate) struct BirthdayActor {
     dao: Dao,
     birthday_assistant: BirthdayAssistant,
-    slack_interaction_actor: Addr<SlackInteractionActor>,
+    slack_interaction_actor: Addr<SlackInteractionServer>,
 
     slack_client: Arc<crate::bot::SlackClient>,
     channel: SlackChannelId,
@@ -22,7 +23,7 @@ impl BirthdayActor {
     pub fn new(
         dao: Dao,
         birthday_assistant: BirthdayAssistant,
-        slack_interaction_actor: Addr<SlackInteractionActor>,
+        slack_interaction_actor: Addr<SlackInteractionServer>,
         slack_client: Arc<crate::bot::SlackClient>,
         channel: SlackChannelId,
     ) -> Self {
@@ -32,70 +33,6 @@ impl BirthdayActor {
             slack_interaction_actor,
             slack_client,
             channel,
-        }
-    }
-
-    #[allow(dead_code)]
-    async fn on_init(&self, content: String) -> anyhow::Result<()> {
-        info!("got message: {:?}", content);
-
-        let username = content;
-
-        // let interaction_id = self
-        //     .slack_interaction_handlers
-        //     .add_handler(Arc::new(BirthdayActor { count: 0 }))
-        //     .await;
-
-        let interaction_id = SlackInteractionId::random();
-
-        let user_id = match self.dao.employee_by_name(username.clone()).await {
-            Ok(Some(e)) => {
-                match self
-                    .dao
-                    .some_account_for_network(
-                        e.id,
-                        SLACK.0.clone(),
-                        Some(SCIENTA_SLACK_NETWORK_ID.to_string()),
-                    )
-                    .await
-                {
-                    Ok(Some(account)) => Ok(account.subject.map(|s| Ok(SlackUserId(s))).unwrap()),
-                    Ok(None) => Ok(Err(username.clone())),
-                    Err(e) => Err(anyhow!("unable to query: {}", e)),
-                }
-            }
-            Ok(None) => Ok(Err(username.clone())),
-            Err(e) => Err(anyhow!("unable to query: {}", e)),
-        }?;
-
-        let message = BirthdayMessage {
-            username,
-            user_id,
-            interaction_id,
-        };
-
-        let req =
-            SlackApiChatPostMessageRequest::new(self.channel.clone(), message.render_template());
-
-        // let res = self
-        //     .slack_client
-        //     .run_in_session(|s|async move {
-        //         let req = req;
-        //         s.chat_post_message(&req) })
-        //     .await
-        //     .await
-        //     .await;
-
-        let session = self
-            .slack_client
-            .client
-            .open_session(&self.slack_client.token);
-
-        let res = session.chat_post_message(&req).await;
-
-        match res {
-            Ok(_) => Ok(()),
-            Err(err) => Err(anyhow!("could not post message: {}", err)),
         }
     }
 }
@@ -184,11 +121,11 @@ impl Handler<Init> for BirthdayActor {
     }
 }
 
-impl Handler<OnInteraction> for BirthdayActor {
+impl Handler<OnInteractionAction> for BirthdayActor {
     type Result = ();
 
-    fn handle(&mut self, msg: OnInteraction, _ctx: &mut Self::Context) -> Self::Result {
-        info!("got interaction block actions: {:?}", msg.event);
+    fn handle(&mut self, msg: OnInteractionAction, _ctx: &mut Self::Context) -> Self::Result {
+        info!("got interaction block action: {:?}", msg.event);
     }
 }
 
