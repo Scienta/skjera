@@ -14,7 +14,7 @@ mod web;
 
 use crate::birthday_assistant::BirthdayAssistant;
 use crate::bot::birthday::BirthdayHandler;
-use crate::bot::birthdays_actor::BirthdaysActor;
+use crate::bot::birthdays_actor::{BirthdaysActor, BirthdaysActorMsg};
 use crate::bot::hey::HeyHandler;
 use crate::bot::SlackClient;
 use crate::model::*;
@@ -27,8 +27,8 @@ use axum::response::{IntoResponse, Redirect, Response};
 use axum::Router;
 use axum_login::{login_required, AuthManagerLayerBuilder};
 use oauth2::basic::BasicClient;
+use ractor::{Actor, ActorRef};
 use reqwest::Client as ReqwestClient;
-use riker::actors::*;
 use sqlx::postgres::PgConnectOptions;
 use sqlx::{Pool, Postgres};
 use std::env;
@@ -39,6 +39,7 @@ use std::sync::Arc;
 use tokio::net::TcpListener;
 use tokio::signal;
 use tokio::sync::Mutex;
+use tokio::task::JoinHandle;
 use tower_http::services::ServeDir;
 use tower_http::trace::TraceLayer;
 use tower_sessions::cookie::SameSite::Lax;
@@ -70,8 +71,6 @@ async fn main() {
     let logging_subsystem = logging_subsystem.unwrap();
 
     warn!(version = VERSION_INFO, "Starting skjera");
-
-    let system = ActorSystem::new().unwrap();
 
     let options = match std::env::var("DATABASE_URL") {
         Ok(url) => match url.parse::<PgConnectOptions>() {
@@ -126,23 +125,25 @@ async fn main() {
         None => None,
     };
 
-    let slack_interaction_actor = system
-        .actor_of::<SlackInteractionServer>("slack-interaction")
-        .unwrap();
+    let (slack_interaction_server, slack_interaction_server_actor) =
+        Actor::spawn(None, SlackInteractionServer, ())
+            .await
+            .expect("Actor failed to start");
 
     // TODO: Rename to BIRTHDAY_ASSISTANT
     let birthday_bot = env::var("BIRTHDAY_BOT")
         .ok()
         .map(|assistant_id| BirthdayAssistant::new(async_openai::Client::new(), assistant_id));
 
-    let (slack_client, bot, _birthday_address) = match configure_slack(
+    let (slack_client, bot, birthdays) = match configure_slack(
         pool.clone(),
         dao.clone(),
         birthday_bot.clone(),
-        &system,
-        slack_interaction_actor.clone(),
+        slack_interaction_server.clone(),
         &cfg.slack_config,
-    ) {
+    )
+    .await
+    {
         Ok(x) => x,
         Err(e) => return println!("could not configure slack: {}", e),
     };
@@ -175,6 +176,14 @@ async fn main() {
 
     let r = start_server(server_impl, session_layer, "0.0.0.0:8080").await;
 
+    if let Some((birthdays, birthdays_actor)) = birthdays {
+        birthdays.stop(None);
+        birthdays_actor.await.unwrap();
+    }
+
+    slack_interaction_server.stop(None);
+    slack_interaction_server_actor.await.unwrap();
+
     logging_subsystem.shutdown().await;
 
     if let Err(e) = r {
@@ -184,17 +193,16 @@ async fn main() {
     }
 }
 
-fn configure_slack(
+async fn configure_slack(
     pool: Pool<Postgres>,
     dao: Dao,
     birthday_assistant: Option<BirthdayAssistant>,
-    actor_system: &ActorSystem,
     slack_interaction_actor: ActorRef<<SlackInteractionServer as Actor>::Msg>,
     slack_config: &Option<SlackConfig>,
 ) -> anyhow::Result<(
     Option<Arc<SlackClient>>,
     Option<bot::SkjeraBot<Postgres>>,
-    Option<ActorRef<<BirthdaysActor as Actor>::Msg>>,
+    Option<(ActorRef<BirthdaysActorMsg>, JoinHandle<()>)>,
 )> {
     if let (Some(slack_config), Some(birthday_assistant)) = (slack_config, birthday_assistant) {
         let slack_client = slack_morphism::prelude::SlackClient::new(
@@ -210,19 +218,20 @@ fn configure_slack(
 
         let mut handlers: Vec<Arc<Mutex<dyn bot::SlackHandler + Send + Sync>>> = Vec::new();
 
-        let birthdays_addr = actor_system
-            .actor_of_args::<BirthdaysActor, _>(
-                "birthdays",
-                (
-                    dao,
-                    birthday_assistant,
-                    slack_interaction_actor.clone(),
-                    slack_client.clone(),
-                ),
-            )
-            .unwrap();
+        let (birthdays, birthdays_actor) = Actor::spawn(
+            None,
+            BirthdaysActor {},
+            (
+                dao,
+                birthday_assistant,
+                slack_interaction_actor.clone(),
+                slack_client.clone(),
+            ),
+        )
+        .await
+        .expect("Actor failed to start");
 
-        let birthday_handler = BirthdayHandler::new(actor_system.clone(), birthdays_addr.clone());
+        let birthday_handler = BirthdayHandler::new(birthdays.clone());
         handlers.push(Arc::new(Mutex::new(birthday_handler)));
 
         handlers.push(Arc::new(Mutex::new(HeyHandler {
@@ -236,7 +245,11 @@ fn configure_slack(
             slack_interaction_actor,
         );
 
-        Ok((Some(slack_client), Some(bot), Some(birthdays_addr)))
+        Ok((
+            Some(slack_client),
+            Some(bot),
+            Some((birthdays, birthdays_actor)),
+        ))
     } else {
         Ok((None, None, None))
     }

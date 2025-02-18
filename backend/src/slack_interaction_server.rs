@@ -1,5 +1,5 @@
-use anyhow::{anyhow, Error};
-use riker::actors::*;
+use crate::bot::birthday_actor::BirthdayActorMsg;
+use ractor::{cast, Actor, ActorProcessingErr, ActorRef, MessagingErr, RpcReplyPort};
 use slack_morphism::events::SlackInteractionBlockActionsEvent;
 use slack_morphism::prelude::SlackInteractionActionInfo;
 use slack_morphism::SlackActionId;
@@ -8,100 +8,97 @@ use std::fmt::{Display, Formatter};
 use tracing::{info, warn};
 use uuid::Uuid;
 
-#[actor(AddInteraction, OnInteractionActions)]
-pub struct SlackInteractionServer {
-    handlers: HashMap<SlackInteractionId, ActorRef<OnInteractionAction>>,
+pub trait InteractionSubscriber: Send + 'static {
+    fn on_interaction(&self, event: SlackInteractionActionInfo) -> anyhow::Result<()>;
 }
 
-impl SlackInteractionServer {
-    pub(crate) fn new() -> SlackInteractionServer {
-        SlackInteractionServer {
+pub enum SlackInteractionServerMsg {
+    AddInteraction(
+        Box<dyn InteractionSubscriber>,
+        RpcReplyPort<SlackInteractionId>,
+    ),
+    OnInteractionActions(SlackInteractionBlockActionsEvent),
+    // OnInteractionAction(SlackInteractionActionInfo),
+}
+
+struct AddInteractionResponse {
+    pub interaction_id: SlackInteractionId,
+}
+
+pub struct SlackInteractionServer;
+
+pub struct SlackInteractionServerState {
+    handlers: HashMap<SlackInteractionId, Box<dyn InteractionSubscriber>>,
+}
+
+impl SlackInteractionServerState {
+    pub(crate) fn new() -> SlackInteractionServerState {
+        SlackInteractionServerState {
             handlers: HashMap::new(),
         }
     }
 }
 
-impl Default for SlackInteractionServer {
+impl Default for SlackInteractionServerState {
     fn default() -> Self {
         Self::new()
     }
 }
 
+#[ractor::async_trait]
 impl Actor for SlackInteractionServer {
     type Msg = SlackInteractionServerMsg;
+    type State = SlackInteractionServerState;
+    type Arguments = ();
 
-    fn recv(&mut self, ctx: &Context<Self::Msg>, msg: Self::Msg, sender: Sender) {
-        self.receive(ctx, msg, sender);
+    async fn pre_start(
+        &self,
+        _myself: ActorRef<Self::Msg>,
+        _args: Self::Arguments,
+    ) -> Result<Self::State, ActorProcessingErr> {
+        Ok(SlackInteractionServerState {
+            handlers: HashMap::new(),
+        })
     }
-}
 
-#[derive(Clone, Debug)]
-pub struct AddInteraction {
-    pub(crate) recipient: ActorRef<OnInteractionAction>,
-}
+    async fn handle(
+        &self,
+        _myself: ActorRef<Self::Msg>,
+        msg: Self::Msg,
+        state: &mut Self::State,
+    ) -> Result<(), ActorProcessingErr> {
+        match msg {
+            SlackInteractionServerMsg::AddInteraction(subscription, reply) => {
+                let interaction_id = SlackInteractionId::random();
 
-#[derive(Clone, Debug)]
-pub struct AddInteractionResponse {
-    pub(crate) interaction_id: SlackInteractionId,
-}
+                state.handlers.insert(interaction_id.clone(), subscription);
 
-impl Receive<AddInteraction> for SlackInteractionServer {
-    type Msg = SlackInteractionServerMsg;
+                let _ = reply.send(interaction_id);
 
-    fn receive(&mut self, ctx: &Context<Self::Msg>, msg: AddInteraction, sender: Sender) {
-        let interaction_id = SlackInteractionId::random();
+                Ok(())
+            }
+            SlackInteractionServerMsg::OnInteractionActions(event) => {
+                info!("Handling interaction action");
 
-        self.handlers.insert(interaction_id.clone(), msg.recipient);
+                for action in event.actions.clone().unwrap_or_default().iter() {
+                    if let Ok(interaction_id) = action.clone().action_id.try_into() {
+                        match state.handlers.get(&interaction_id) {
+                            Some(recipient) => {
+                                recipient.on_interaction(action.clone());
 
-        let _ = sender
-            .unwrap()
-            .try_tell(AddInteractionResponse { interaction_id }, ctx.myself.clone());
-    }
-}
-
-#[derive(Clone, Debug)]
-pub struct OnInteractionActions {
-    pub(crate) event: SlackInteractionBlockActionsEvent,
-}
-
-#[derive(Clone, Debug)]
-pub struct OnInteractionAction {
-    pub(crate) event: SlackInteractionActionInfo,
-}
-
-impl Receive<OnInteractionActions> for SlackInteractionServer {
-    type Msg = SlackInteractionServerMsg;
-
-    fn receive(&mut self, _ctx: &Context<Self::Msg>, msg: OnInteractionActions, _sender: Sender) {
-        info!("Handling interaction action");
-
-        for action in msg.event.actions.clone().unwrap_or_default().iter() {
-            if let Ok(interaction_id) = action.clone().action_id.try_into() {
-                match self.handlers.get(&interaction_id) {
-                    Some(recipient) => {
-                        recipient.do_send(OnInteractionAction {
-                            event: action.clone(),
-                        });
-
-                        // _ctx.wait(async {
-                        //     match recipient
-                        //         .send(OnInteractionAction {
-                        //             event: action.clone(),
-                        //         })
-                        //         .await
-                        //     {
-                        //         Err(err) => warn!("Could not send interaction action: {}", err),
-                        //         _ => (),
-                        //     };
-                        // });
-                    }
-                    None => {
-                        warn!(
-                            "No handler registered for interaction action: {:?}",
-                            action.action_id.clone()
-                        );
+                                // cast!(recipient, OnInteractionAction(action.clone()))?;
+                            }
+                            None => {
+                                warn!(
+                                    "No handler registered for interaction action: {:?}",
+                                    action.action_id.clone()
+                                );
+                            }
+                        }
                     }
                 }
+
+                Ok(())
             }
         }
     }
@@ -129,11 +126,11 @@ impl Display for SlackInteractionId {
 }
 
 impl TryFrom<SlackActionId> for SlackInteractionId {
-    type Error = Error;
+    type Error = anyhow::Error;
 
     fn try_from(value: SlackActionId) -> anyhow::Result<Self> {
         Uuid::parse_str(&value.0)
             .map(SlackInteractionId)
-            .map_err(|e| anyhow!(e))
+            .map_err(|e| anyhow::anyhow!(e))
     }
 }

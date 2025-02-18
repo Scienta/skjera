@@ -3,11 +3,12 @@ pub mod birthday_actor;
 pub mod birthdays_actor;
 pub mod hey;
 
-use crate::slack_interaction_server::{OnInteractionActions, SlackInteractionServer};
-use riker::actors::*;
+use crate::slack_interaction_server::SlackInteractionServerMsg::OnInteractionActions;
+use crate::slack_interaction_server::SlackInteractionServer;
 use async_trait::async_trait;
 use axum::response::{IntoResponse, Response};
 use http::StatusCode;
+use ractor::{cast, Actor, ActorRef};
 use slack_morphism::prelude::*;
 use sqlx::{Database, Pool};
 use std::sync::Arc;
@@ -121,8 +122,7 @@ where
     ) -> Response {
         info!("Received slack interaction event");
 
-        self.slack_interaction_actor
-            .tell(OnInteractionActions { event }, None);
+        cast!(self.slack_interaction_actor, OnInteractionActions(event));
 
         (StatusCode::OK, "got it!").into_response()
     }

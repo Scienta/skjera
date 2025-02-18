@@ -1,78 +1,102 @@
 use crate::birthday_assistant::BirthdayAssistant;
-use crate::bot::birthday_actor::BirthdayActor;
+use crate::bot::birthday_actor::{BirthdayActor, BirthdayActorMsg};
 use crate::bot::SlackClient;
 use crate::model::Dao;
 use crate::slack_interaction_server::SlackInteractionServer;
-use riker::actors::*;
+use ractor::{Actor, ActorProcessingErr, ActorRef, RpcReplyPort};
 use slack_morphism::SlackChannelId;
 use std::sync::Arc;
 use tracing::info;
 use uuid::Uuid;
 
-#[actor(CreateBirthdayActor)]
-pub(crate) struct BirthdaysActor {
+pub enum BirthdaysActorMsg {
+    CreateBirthdayActor(SlackChannelId, RpcReplyPort<ActorRef<BirthdayActorMsg>>),
+}
+
+pub(crate) struct BirthdaysActor;
+
+pub(crate) struct BirthdaysActorState {
     dao: Dao,
     birthday_assistant: BirthdayAssistant,
     slack_interaction_actor: ActorRef<<SlackInteractionServer as Actor>::Msg>,
     slack_client: Arc<SlackClient>,
 }
 
-#[derive(Clone, Debug)]
-pub(crate) struct CreateBirthdayActor {
-    pub channel: SlackChannelId,
-}
+// impl BirthdaysActor {
+//     fn new(
+//         dao: Dao,
+//         birthday_assistant: BirthdayAssistant,
+//         slack_interaction_actor: ActorRef<<SlackInteractionServer as Actor>::Msg>,
+//         slack_client: Arc<SlackClient>,
+//     ) -> Self {
+//         Self {
+//             dao,
+//             birthday_assistant,
+//             slack_interaction_actor,
+//             slack_client,
+//         }
+//     }
+// }
 
-impl
-    ActorFactoryArgs<(
+#[ractor::async_trait]
+impl Actor for BirthdaysActor {
+    type Msg = BirthdaysActorMsg;
+    type State = BirthdaysActorState;
+    type Arguments = (
         Dao,
         BirthdayAssistant,
         ActorRef<<SlackInteractionServer as Actor>::Msg>,
         Arc<SlackClient>,
-    )> for BirthdaysActor
-{
-    fn create_args(
-        (dao, birthday_assistant, slack_interaction_actor, slack_client): (
-            Dao,
-            BirthdayAssistant,
-            ActorRef<<SlackInteractionServer as Actor>::Msg>,
-            Arc<SlackClient>,
-        ),
-    ) -> Self {
-        Self {
-            dao,
-            birthday_assistant,
-            slack_interaction_actor,
-            slack_client,
+    );
+
+    async fn pre_start(
+        &self,
+        _myself: ActorRef<Self::Msg>,
+        args: Self::Arguments,
+    ) -> Result<Self::State, ActorProcessingErr> {
+        let state = match args {
+            (dao, birthday_assistant, slack_interaction_actor, slack_client) => Self::State {
+                dao,
+                birthday_assistant,
+                slack_interaction_actor,
+                slack_client,
+            },
+        };
+
+        Ok(state)
+    }
+
+    async fn handle(
+        &self,
+        myself: ActorRef<Self::Msg>,
+        message: Self::Msg,
+        state: &mut Self::State,
+    ) -> Result<(), ActorProcessingErr> {
+        match message {
+            BirthdaysActorMsg::CreateBirthdayActor(channel, reply) => {
+                info!("Creating new BirthdayActor");
+                let name = format!("birthday/{}", Uuid::now_v7().to_string());
+
+                let (actor, _join_handle) = myself
+                    .spawn_linked(
+                        Some(name),
+                        BirthdayActor,
+                        (
+                            state.dao.clone(),
+                            state.birthday_assistant.clone(),
+                            state.slack_interaction_actor.clone(),
+                            state.slack_client.clone(),
+                            channel,
+                        ),
+                    )
+                    .await?;
+
+                // TODO: this is there the join handle should be kept or something
+
+                reply.send(actor)?
+            }
         }
-    }
-}
 
-impl Actor for BirthdaysActor {
-    type Msg = BirthdaysActorMsg;
-
-    fn recv(&mut self, ctx: &Context<Self::Msg>, msg: Self::Msg, sender: Sender) {
-        self.receive(ctx, msg, sender);
-    }
-}
-
-impl Receive<CreateBirthdayActor> for BirthdaysActor {
-    type Msg = BirthdaysActorMsg;
-
-    fn receive(&mut self, ctx: &Context<Self::Msg>, msg: CreateBirthdayActor, _sender: Sender) {
-        info!("Creating new BirthdayActor");
-        let name = format!("birthday/{}", Uuid::now_v7().to_string());
-        let _ = ctx
-            .system
-            .actor_of_args::<BirthdayActor, _>(
-                name.as_ref(),
-                (
-                    self.dao.clone(),
-                    self.birthday_assistant.clone(),
-                    self.slack_interaction_actor.clone(),
-                    self.slack_client.clone(),
-                    msg.channel,
-                ),
-            )
-            .unwrap();
+        Ok(())
     }
 }

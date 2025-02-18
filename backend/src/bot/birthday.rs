@@ -1,29 +1,21 @@
-use crate::bot::birthday_actor::BirthdayActorMsg;
-use crate::bot::birthdays_actor::{BirthdaysActor, BirthdaysActorMsg, CreateBirthdayActor};
-use crate::bot::{birthday_actor, SlackHandler, SlackHandlerResponse};
+use crate::bot::birthday_actor::BirthdayActorMsg::*;
+use crate::bot::birthdays_actor::BirthdaysActorMsg::*;
+use crate::bot::birthdays_actor::BirthdaysActorMsg;
+use crate::bot::{SlackHandler, SlackHandlerResponse};
 use async_trait::async_trait;
-use futures_util::future::RemoteHandle;
-use riker::actors::*;
-use riker_patterns::ask::ask;
+use ractor::{call_t, cast, ActorRef};
 use slack_morphism::prelude::*;
-use tracing::info;
+use tracing::{info};
 use SlackHandlerResponse::*;
 
 #[derive(Clone)]
 pub(crate) struct BirthdayHandler {
-    system: ActorSystem,
-    birthdays_actor: ActorRef<<BirthdaysActor as Actor>::Msg>,
+    birthdays_actor: ActorRef<BirthdaysActorMsg>,
 }
 
 impl BirthdayHandler {
-    pub(crate) fn new(
-        system: ActorSystem,
-        birthdays_actor: ActorRef<BirthdaysActorMsg>,
-    ) -> BirthdayHandler {
-        Self {
-            system,
-            birthdays_actor,
-        }
+    pub(crate) fn new(birthdays_actor: ActorRef<BirthdaysActorMsg>) -> BirthdayHandler {
+        Self { birthdays_actor }
     }
 }
 
@@ -52,25 +44,17 @@ impl SlackHandler for BirthdayHandler {
                 let (_, content) = words.split_at(2);
                 let content = content.join(" ");
 
-                let res: RemoteHandle<ActorRef<BirthdayActorMsg>> = ask(
-                    &self.system,
-                    &self.birthdays_actor,
-                    CreateBirthdayActor {
-                        channel: channel.clone(),
-                    },
-                );
+                let addr = call_t!(
+                    self.birthdays_actor,
+                    CreateBirthdayActor,
+                    1000,
+                    channel.clone()
+                )
+                .expect("could not start birthday actor");
 
-                let addr = res.await;
+                info!("new birthday created: {:?}", addr);
 
-                info!("new birthday created: {:?}", addr,);
-
-                addr.tell(
-                    birthday_actor::Init {
-                        content: content.clone(),
-                        slack_network_id: event.team_id.clone(),
-                    },
-                    None,
-                );
+                cast!(addr, Init(content.clone(), event.team_id.clone()));
 
                 Handled
             }
