@@ -1,17 +1,15 @@
 use crate::birthday_assistant::BirthdayAssistant;
-use crate::bot::birthdays_actor::BirthdaysActor;
-use crate::model::{Dao, Employee, EmployeeDao};
+use crate::model::{Dao, Employee, EmployeeDao, SomeAccount, SLACK};
 use crate::slack_interaction_server::SlackInteractionServerMsg::AddInteraction;
 use crate::slack_interaction_server::{
-    InteractionSubscriber, SlackInteractionId, SlackInteractionServer, SlackInteractionServerMsg,
+    InteractionSubscriber, SlackInteractionId, SlackInteractionServer,
 };
 use anyhow::anyhow;
-use ractor::{call, Actor, ActorProcessingErr, ActorRef, MessagingErr};
+use ractor::{call, Actor, ActorProcessingErr, ActorRef};
 use slack_morphism::prelude::*;
-use std::any::Any;
-use std::future::Future;
 use std::sync::Arc;
 use tracing::{info, warn};
+use BirthdayActorMsg::Init;
 
 pub(crate) struct BirthdayActor;
 
@@ -23,6 +21,7 @@ pub(crate) struct BirthdayActorState {
     slack_client: Arc<crate::bot::SlackClient>,
     channel: SlackChannelId,
     employee: Option<Employee>,
+    some_account: Option<SomeAccount>,
 }
 
 pub enum BirthdayActorMsg {
@@ -57,6 +56,7 @@ impl Actor for BirthdayActor {
                     channel,
 
                     employee: None,
+                    some_account: None,
                 }
             }
         };
@@ -70,7 +70,7 @@ impl Actor for BirthdayActor {
         state: &mut Self::State,
     ) -> Result<(), ActorProcessingErr> {
         match message {
-            BirthdayActorMsg::Init(team_id, team) => {
+            Init(content, team) => {
                 let interaction_id = call!(
                     state.slack_interaction_actor.clone(),
                     AddInteraction,
@@ -78,88 +78,73 @@ impl Actor for BirthdayActor {
                 )?;
 
                 info!("interaction_id: {:?}", interaction_id);
-                // TODO
-                // async fn y(
-                //     interaction_id: SlackInteractionId,
-                //     content: String,
-                //     dao: Dao,
-                //     msg: Init,
-                //     channel: SlackChannelId,
-                //     slack_client: Arc<crate::bot::SlackClient>,
-                // ) -> Option<Employee> {
-                //     info!("got message: {:?}", content);
-                //
-                //     let username = content;
-                //
-                //     // let interaction_id = SlackInteractionId::random();
-                //
-                //     let employee = dao.employee_by_name(username.clone()).await.ok().flatten();
-                //
-                //     // let user_id = match dao.employee_by_name(username.clone()).await {
-                //     //     Ok(Some(e)) => {
-                //     //         match dao
-                //     //             .some_account_for_network(
-                //     //                 e.id,
-                //     //                 SLACK.0.clone(),
-                //     //                 Some(msg.slack_network_id.to_string()),
-                //     //             )
-                //     //             .await
-                //     //         {
-                //     //             Ok(Some(account)) => Ok(account.subject.map(SlackUserId).unwrap()),
-                //     //             Ok(None) => Err(username.clone()),
-                //     //             Err(e) => return warn!("unable to query: {}", e),
-                //     //         }
-                //     //     }
-                //     //     Ok(None) => Err(username.clone()),
-                //     //     // Err(e) => Err(anyhow!("unable to query: {}", e)),
-                //     //     Err(e) => return warn!("unable to query: {}", e),
-                //     // };
-                //
-                //     let message = BirthdayMessage {
-                //         username,
-                //         user_id: Err("not found".to_owned()),
-                //         interaction_id,
-                //     };
-                //
-                //     let req = SlackApiChatPostMessageRequest::new(
-                //         channel.clone(),
-                //         message.render_template(),
-                //     );
-                //
-                //     let session = slack_client.client.open_session(&slack_client.token);
-                //
-                //     let _res = session.chat_post_message(&req).await;
-                //
-                //     employee
-                // }
+
+                info!("got message: {:?}", content);
+
+                let username = content;
+
+                let employee = state
+                    .dao
+                    .employee_by_name(username.clone())
+                    .await
+                    .ok()
+                    .flatten();
+
+                let some_account = match employee.clone() {
+                    Some(e) => {
+                        state
+                            .dao
+                            .some_account_for_network(e.id, SLACK.0.clone(), Some(team.0))
+                            .await?
+                    }
+                    _ => None,
+                };
+
+                let message = BirthdayMessage {
+                    username,
+                    user_id: Err("not found".to_owned()),
+                    interaction_id,
+                };
+
+                let req = SlackApiChatPostMessageRequest::new(
+                    state.channel.clone(),
+                    message.render_template(),
+                );
+
+                let session = state
+                    .slack_client
+                    .client
+                    .open_session(&state.slack_client.token);
+
+                let _res = session.chat_post_message(&req).await;
+
+                state.employee = employee;
+                state.some_account = some_account;
 
                 Ok(())
             }
             BirthdayActorMsg::OnInteraction(event) => {
-                // TODO
-                // info!("got interaction block action: {:?}", msg.event.clone());
-                //
-                // let employee = self.employee.clone();
-                // let value = msg.event.value.clone();
-                // let birthday_assistant = self.birthday_assistant.clone();
-                //
-                // ctx.wait(async move {
-                //     match value {
-                //         Some(s) if s == "generate-message" => {
-                //             info!("generating message");
-                //             match employee {
-                //                 None => info!("no employee found"),
-                //                 Some(employee) => {
-                //                     match birthday_assistant.create_message(&employee).await {
-                //                         Ok(message) => info!("New birthday message: {}", message),
-                //                         Err(e) => warn!("unable to create message: {}", e),
-                //                     }
-                //                 }
-                //             }
-                //         }
-                //         _ => (),
-                //     };
-                // })
+                info!("got interaction block action: {:?}", event.clone());
+
+                let employee = state.employee.clone();
+                let value = event.value.clone();
+                let birthday_assistant = state.birthday_assistant.clone();
+
+                match value {
+                    Some(s) if s == "generate-message" => {
+                        info!("generating message");
+                        match employee {
+                            None => info!("no employee found"),
+                            Some(employee) => {
+                                match birthday_assistant.create_message(&employee).await {
+                                    Ok(message) => info!("New birthday message: {}", message),
+                                    Err(e) => warn!("unable to create message: {}", e),
+                                }
+                            }
+                        }
+                    }
+                    _ => (),
+                };
 
                 Ok(())
             }
