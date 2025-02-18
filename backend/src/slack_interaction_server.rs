@@ -17,11 +17,6 @@ pub enum SlackInteractionServerMsg {
         RpcReplyPort<SlackInteractionId>,
     ),
     OnInteractionActions(SlackInteractionBlockActionsEvent),
-    // OnInteractionAction(SlackInteractionActionInfo),
-}
-
-struct AddInteractionResponse {
-    pub interaction_id: SlackInteractionId,
 }
 
 pub struct SlackInteractionServer;
