@@ -62,12 +62,7 @@ impl BirthdayActor {
 
         let username = content;
 
-        let employee = self
-            .dao
-            .employee_by_name(username.clone())
-            .await
-            .ok()
-            .flatten();
+        let employee = self.dao.employee_by_name(username.clone()).await?;
 
         let some_account = match employee.clone() {
             Some(e) => {
@@ -78,7 +73,7 @@ impl BirthdayActor {
             _ => None,
         };
 
-        let message = BirthdayMessage::initial(&username, interaction_id);
+        let message = BirthdayMessage::initial(&username, &some_account, interaction_id);
 
         let req = SlackApiChatPostMessageRequest::new(channel.clone(), message.render_template());
 
@@ -145,6 +140,7 @@ impl BirthdayActor {
 
                         let message = BirthdayMessage::suggestion(
                             &username,
+                            some_account,
                             interaction_id,
                             &birthday_message,
                         );
@@ -293,7 +289,7 @@ impl Actor for BirthdayActor {
 
                     let req = &SlackApiChatUpdateRequest::new(
                         channel.clone(),
-                        BirthdayMessage::deleted("not found".to_string()).render_template(),
+                        BirthdayMessage::deleted("unknown".to_string(), None).render_template(),
                         ts,
                     );
 
@@ -338,7 +334,7 @@ impl InteractionSubscriber for BirthdayActorInteractionSubscriber {
 pub struct BirthdayMessage {
     #[allow(dead_code)]
     pub username: String,
-    pub user_id: Result<SlackUserId, String>,
+    pub user_id: Option<SlackUserId>,
     pub interaction_id: Option<SlackInteractionId>,
 
     pub birthday_message: Option<String>,
@@ -346,10 +342,18 @@ pub struct BirthdayMessage {
 }
 
 impl BirthdayMessage {
-    fn initial(username: &String, interaction_id: SlackInteractionId) -> BirthdayMessage {
+    fn initial(
+        username: &String,
+        some_account: &Option<SomeAccount>,
+        interaction_id: SlackInteractionId,
+    ) -> BirthdayMessage {
         BirthdayMessage {
             username: username.clone(),
-            user_id: Err("not found".to_owned()),
+            user_id: some_account
+                .clone()
+                .map(|sa| sa.subject)
+                .flatten()
+                .map(SlackUserId),
             interaction_id: Some(interaction_id),
             birthday_message: None,
             deleted: false,
@@ -358,22 +362,27 @@ impl BirthdayMessage {
 
     fn suggestion(
         username: &String,
+        some_account: &Option<SomeAccount>,
         interaction_id: SlackInteractionId,
         birthday_message: &String,
     ) -> BirthdayMessage {
         BirthdayMessage {
             username: username.clone(),
-            user_id: Err("not found".to_owned()),
+            user_id: some_account
+                .clone()
+                .map(|sa| sa.subject)
+                .flatten()
+                .map(SlackUserId),
             interaction_id: Some(interaction_id),
             birthday_message: Some(birthday_message.clone()),
             deleted: false,
         }
     }
 
-    fn deleted(username: String) -> BirthdayMessage {
+    fn deleted(username: String, some_account: Option<SomeAccount>) -> BirthdayMessage {
         BirthdayMessage {
             username: username.clone(),
-            user_id: Err("not found".to_owned()),
+            user_id: some_account.map(|sa| sa.subject).flatten().map(SlackUserId),
             interaction_id: None,
             birthday_message: None,
             deleted: true,
@@ -389,7 +398,7 @@ impl SlackMessageTemplate for BirthdayMessage {
             ))),
             some_into(SlackSectionBlock::new().with_text(md!(
                 "Happy birthday to {} :partying_face: :tada:",
-                self.user_id.clone().map(|u| u.to_slack_format()).unwrap_or_else(|s|s)
+                self.user_id.clone().map(|u| u.to_slack_format()).unwrap_or_else(||self.username.clone())
             ))),
             some_into(SlackDividerBlock::new()),
             optionally_into(self.birthday_message.is_none() && self.interaction_id.is_some() => SlackActionsBlock::new(slack_blocks![
