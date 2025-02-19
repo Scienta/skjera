@@ -46,7 +46,7 @@ impl BirthdayActor {
         myself: ActorRef<BirthdayActorMsg>,
         content: String,
         team: SlackTeamId,
-        channel: SlackChannelId,
+        New { channel }: &New,
     ) -> anyhow::Result<BirthdayActorState> {
         let interaction_id = call!(
             self.slack_interaction_actor,
@@ -96,30 +96,37 @@ impl BirthdayActor {
 
         let timer = myself.send_after(self.timeout_duration, || Timeout);
 
-        Ok(AwaitingSuggestion(
+        Ok(AwaitingSuggestion(AwaitingSuggestion {
             timer,
-            channel.clone(),
+            channel: channel.clone(),
             username,
             employee,
             some_account,
-            res.ts,
-        ))
+            ts: res.ts,
+        }))
     }
 
     pub(crate) async fn create_suggestion(
         &self,
         myself: ActorRef<BirthdayActorMsg>,
         event: SlackInteractionActionInfo,
-        timer: &TimerT,
-        channel: SlackChannelId,
-        username: String,
-        employee: Employee,
-        some_account: Option<SomeAccount>,
-        ts: SlackTs,
+        AwaitingSuggestion {
+            timer,
+            channel,
+            username,
+            employee,
+            some_account,
+            ts,
+        }: &AwaitingSuggestion,
     ) -> anyhow::Result<BirthdayActorState> {
         info!("got interaction block action: {:?}", event.clone());
 
         timer.abort();
+
+        let employee = match employee {
+            Some(e) => e,
+            None => return Err(anyhow!("employee not found")),
+        };
 
         let updated = match event.value {
             Some(s) if s == "generate-message" => {
@@ -159,60 +166,76 @@ impl BirthdayActor {
 
                         warn!("slack update: {:?}", _res);
 
-                        HaveSuggestion(
-                            myself.send_after(self.timeout_duration, || Timeout),
-                            channel.clone(),
-                            username.clone(),
-                            Some(employee.clone()),
-                            some_account.clone(),
-                            ts.clone(),
+                        HaveSuggestion(HaveSuggestion {
+                            timer: myself.send_after(self.timeout_duration, || Timeout),
+                            channel: channel.clone(),
+                            username: username.clone(),
+                            employee: Some(employee.clone()),
+                            some_account: some_account.clone(),
+                            ts: ts.clone(),
                             birthday_message,
-                        )
+                        })
                     }
                     Err(e) => {
                         warn!("unable to create message: {}", e);
-                        Fail()
+                        BirthdayActorState::Fail(Fail {})
                     }
                 }
             }
-            _ => Fail(),
+            _ => BirthdayActorState::Fail(Fail {}),
         };
 
         Ok(updated)
     }
 }
 
-pub(crate) enum BirthdayActorState {
-    Fail(),
-    New(SlackChannelId),
-    AwaitingSuggestion(
-        TimerT,
-        SlackChannelId,
-        String,
-        Option<Employee>,
-        Option<SomeAccount>,
-        SlackTs,
-    ),
-    HaveSuggestion(
-        TimerT,
-        SlackChannelId,
-        String,
-        Option<Employee>,
-        Option<SomeAccount>,
-        SlackTs,
-        String,
-    ),
-    Completed(),
+struct Fail;
+
+struct New {
+    channel: SlackChannelId,
+}
+
+struct AwaitingSuggestion {
+    timer: TimerT,
+    channel: SlackChannelId,
+    username: String,
+    employee: Option<Employee>,
+    some_account: Option<SomeAccount>,
+    ts: SlackTs,
+}
+
+struct HaveSuggestion {
+    timer: TimerT,
+    channel: SlackChannelId,
+    username: String,
+    employee: Option<Employee>,
+    some_account: Option<SomeAccount>,
+    ts: SlackTs,
+    birthday_message: String,
+}
+
+struct Completed;
+
+pub enum BirthdayActorState {
+    Fail(Fail),
+    New(New),
+    AwaitingSuggestion(AwaitingSuggestion),
+    HaveSuggestion(HaveSuggestion),
+    Completed(Completed),
 }
 
 impl BirthdayActorState {
     fn ts(&self) -> Option<(SlackChannelId, SlackTs)> {
         match self {
-            Fail() => None,
+            BirthdayActorState::Fail(..) => None,
             New(..) => None,
-            Completed(..) => None,
-            AwaitingSuggestion(_, channel, _, _, _, ts) => Some((channel.clone(), ts.clone())),
-            HaveSuggestion(_, channel, _, _, _, ts, _) => Some((channel.clone(), ts.clone())),
+            BirthdayActorState::Completed(..) => None,
+            AwaitingSuggestion(AwaitingSuggestion { channel, ts, .. }) => {
+                Some((channel.clone(), ts.clone()))
+            }
+            HaveSuggestion(HaveSuggestion { channel, ts, .. }) => {
+                Some((channel.clone(), ts.clone()))
+            }
         }
     }
 }
@@ -235,7 +258,7 @@ impl Actor for BirthdayActor {
         args: Self::Arguments,
     ) -> Result<Self::State, ActorProcessingErr> {
         let state = match args {
-            (channel,) => New(channel),
+            (channel,) => New(New { channel }),
         };
         Ok(state)
     }
@@ -247,24 +270,9 @@ impl Actor for BirthdayActor {
         state: &mut Self::State,
     ) -> Result<(), ActorProcessingErr> {
         let internal = match (message, state.deref()) {
-            (Init(content, team), New(channel)) => {
-                self.on_init(myself, content, team, channel.clone()).await
-            }
-            (
-                OnInteraction(event),
-                AwaitingSuggestion(timer, channel, username, Some(employee), some_account, ts),
-            ) => {
-                self.create_suggestion(
-                    myself,
-                    event,
-                    timer,
-                    channel.clone(),
-                    username.clone(),
-                    employee.clone(),
-                    some_account.clone(),
-                    ts.clone(),
-                )
-                .await
+            (Init(content, team), New(new)) => self.on_init(myself, content, team, new).await,
+            (OnInteraction(event), AwaitingSuggestion(s)) => {
+                self.create_suggestion(myself, event, s).await
             }
             (Timeout, _state) => {
                 info!("User interaction timed out");
@@ -292,7 +300,7 @@ impl Actor for BirthdayActor {
                     session.chat_update(&req).await?;
                 }
 
-                Ok(Completed())
+                Ok(BirthdayActorState::Completed(Completed {}))
             }
             _ => {
                 let e = anyhow!("Unexpected internal message/state");
@@ -305,7 +313,7 @@ impl Actor for BirthdayActor {
             Ok(internal) => *state = internal,
             Err(e) => {
                 warn!("Internal error: {}", e);
-                *state = Fail();
+                *state = BirthdayActorState::Fail(Fail {});
                 return Err(ActorProcessingErr::from(e));
             }
         }
