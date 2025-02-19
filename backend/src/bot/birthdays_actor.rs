@@ -13,64 +13,50 @@ pub enum BirthdaysActorMsg {
     CreateBirthdayActor(SlackChannelId, RpcReplyPort<ActorRef<BirthdayActorMsg>>),
 }
 
-pub(crate) struct BirthdaysActor;
-
-pub(crate) struct BirthdaysActorState {
+pub(crate) struct BirthdaysActor {
     dao: Dao,
     birthday_assistant: BirthdayAssistant,
     slack_interaction_actor: ActorRef<<SlackInteractionServer as Actor>::Msg>,
     slack_client: Arc<SlackClient>,
 }
 
-// impl BirthdaysActor {
-//     fn new(
-//         dao: Dao,
-//         birthday_assistant: BirthdayAssistant,
-//         slack_interaction_actor: ActorRef<<SlackInteractionServer as Actor>::Msg>,
-//         slack_client: Arc<SlackClient>,
-//     ) -> Self {
-//         Self {
-//             dao,
-//             birthday_assistant,
-//             slack_interaction_actor,
-//             slack_client,
-//         }
-//     }
-// }
+impl BirthdaysActor {
+    pub fn new(
+        dao: Dao,
+        birthday_assistant: BirthdayAssistant,
+        slack_interaction_actor: ActorRef<<SlackInteractionServer as Actor>::Msg>,
+        slack_client: Arc<SlackClient>,
+    ) -> Self {
+        Self {
+            dao,
+            birthday_assistant,
+            slack_interaction_actor,
+            slack_client,
+        }
+    }
+}
+
+pub(crate) struct BirthdaysActorState;
 
 #[ractor::async_trait]
 impl Actor for BirthdaysActor {
     type Msg = BirthdaysActorMsg;
     type State = BirthdaysActorState;
-    type Arguments = (
-        Dao,
-        BirthdayAssistant,
-        ActorRef<<SlackInteractionServer as Actor>::Msg>,
-        Arc<SlackClient>,
-    );
+    type Arguments = ();
 
     async fn pre_start(
         &self,
-        _myself: ActorRef<Self::Msg>,
-        args: Self::Arguments,
+        _: ActorRef<Self::Msg>,
+        _: Self::Arguments,
     ) -> Result<Self::State, ActorProcessingErr> {
-        let state = match args {
-            (dao, birthday_assistant, slack_interaction_actor, slack_client) => Self::State {
-                dao,
-                birthday_assistant,
-                slack_interaction_actor,
-                slack_client,
-            },
-        };
-
-        Ok(state)
+        Ok(Self::State {})
     }
 
     async fn handle(
         &self,
         myself: ActorRef<Self::Msg>,
         message: Self::Msg,
-        state: &mut Self::State,
+        _: &mut Self::State,
     ) -> Result<(), ActorProcessingErr> {
         match message {
             BirthdaysActorMsg::CreateBirthdayActor(channel, reply) => {
@@ -80,14 +66,13 @@ impl Actor for BirthdaysActor {
                 let (actor, _join_handle) = myself
                     .spawn_linked(
                         Some(name),
-                        BirthdayActor,
-                        (
-                            state.dao.clone(),
-                            state.birthday_assistant.clone(),
-                            state.slack_interaction_actor.clone(),
-                            state.slack_client.clone(),
-                            channel,
+                        BirthdayActor::new(
+                            self.dao.clone(),
+                            self.birthday_assistant.clone(),
+                            self.slack_interaction_actor.clone(),
+                            self.slack_client.clone(),
                         ),
+                        (channel,),
                     )
                     .await?;
 

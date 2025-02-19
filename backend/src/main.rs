@@ -220,13 +220,13 @@ async fn configure_slack(
 
         let (birthdays, birthdays_actor) = Actor::spawn(
             None,
-            BirthdaysActor {},
-            (
+            BirthdaysActor::new(
                 dao,
                 birthday_assistant,
                 slack_interaction_actor.clone(),
                 slack_client.clone(),
             ),
+            (),
         )
         .await
         .expect("Actor failed to start");

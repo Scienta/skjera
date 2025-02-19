@@ -1,5 +1,4 @@
 use crate::birthday_assistant::BirthdayAssistant;
-use crate::bot::birthday_actor::InternalState::{Fail, HaveSuggestion, New};
 use crate::model::{Dao, Employee, EmployeeDao, SomeAccount, SLACK};
 use crate::slack_interaction_server::SlackInteractionServerMsg::AddInteraction;
 use crate::slack_interaction_server::{
@@ -8,32 +7,47 @@ use crate::slack_interaction_server::{
 use anyhow::anyhow;
 use ractor::{call, Actor, ActorProcessingErr, ActorRef};
 use slack_morphism::prelude::*;
+use std::ops::Deref;
 use std::sync::Arc;
 use tracing::{info, warn};
 use BirthdayActorMsg::{Init, OnInteraction};
-use InternalState::AwaitingSuggestion;
+use BirthdayActorState::*;
 
-pub(crate) struct BirthdayActor;
-
-pub(crate) struct BirthdayActorState {
+pub(crate) struct BirthdayActor {
     dao: Dao,
     birthday_assistant: BirthdayAssistant,
     slack_interaction_actor: ActorRef<<SlackInteractionServer as Actor>::Msg>,
-
     slack_client: Arc<crate::bot::SlackClient>,
-    channel: SlackChannelId,
-
-    internal: InternalState,
-    // username: String,
-    // employee: Option<Employee>,
-    // some_account: Option<SomeAccount>,
 }
 
-pub(crate) enum InternalState {
+impl BirthdayActor {
+    pub fn new(
+        dao: Dao,
+        birthday_assistant: BirthdayAssistant,
+        slack_interaction_actor: ActorRef<<SlackInteractionServer as Actor>::Msg>,
+        slack_client: Arc<crate::bot::SlackClient>,
+    ) -> Self {
+        Self {
+            dao,
+            birthday_assistant,
+            slack_interaction_actor,
+            slack_client,
+        }
+    }
+}
+
+pub(crate) enum BirthdayActorState {
     Fail(),
-    New(),
-    AwaitingSuggestion(String, Option<Employee>, Option<SomeAccount>, SlackTs),
+    New(SlackChannelId),
+    AwaitingSuggestion(
+        SlackChannelId,
+        String,
+        Option<Employee>,
+        Option<SomeAccount>,
+        SlackTs,
+    ),
     HaveSuggestion(
+        SlackChannelId,
         String,
         Option<Employee>,
         Option<SomeAccount>,
@@ -51,13 +65,7 @@ pub enum BirthdayActorMsg {
 impl Actor for BirthdayActor {
     type Msg = BirthdayActorMsg;
     type State = BirthdayActorState;
-    type Arguments = (
-        Dao,
-        BirthdayAssistant,
-        ActorRef<<SlackInteractionServer as Actor>::Msg>,
-        Arc<crate::bot::SlackClient>,
-        SlackChannelId,
-    );
+    type Arguments = (SlackChannelId,);
 
     async fn pre_start(
         &self,
@@ -65,17 +73,7 @@ impl Actor for BirthdayActor {
         args: Self::Arguments,
     ) -> Result<Self::State, ActorProcessingErr> {
         let state = match args {
-            (dao, birthday_assistant, slack_interaction_actor, slack_client, channel) => {
-                Self::State {
-                    dao,
-                    birthday_assistant,
-                    slack_interaction_actor,
-                    slack_client,
-                    channel,
-
-                    internal: New(),
-                }
-            }
+            (channel,) => New(channel),
         };
         Ok(state)
     }
@@ -86,10 +84,10 @@ impl Actor for BirthdayActor {
         message: Self::Msg,
         state: &mut Self::State,
     ) -> Result<(), ActorProcessingErr> {
-        let internal: InternalState = match (message, &state.internal) {
-            (Init(content, team), New()) => {
+        let internal = match (message, state.deref().clone()) {
+            (Init(content, team), New(channel)) => {
                 let interaction_id = call!(
-                    state.slack_interaction_actor.clone(),
+                    self.slack_interaction_actor,
                     AddInteraction,
                     Box::new(BirthdayActorInteractionSubscriber { actor: _myself })
                 )?;
@@ -100,7 +98,7 @@ impl Actor for BirthdayActor {
 
                 let username = content;
 
-                let employee = state
+                let employee = self
                     .dao
                     .employee_by_name(username.clone())
                     .await
@@ -109,8 +107,7 @@ impl Actor for BirthdayActor {
 
                 let some_account = match employee.clone() {
                     Some(e) => {
-                        state
-                            .dao
+                        self.dao
                             .some_account_for_network(e.id, SLACK.0.clone(), Some(team.0))
                             .await?
                     }
@@ -124,15 +121,13 @@ impl Actor for BirthdayActor {
                     birthday_message: None,
                 };
 
-                let req = SlackApiChatPostMessageRequest::new(
-                    state.channel.clone(),
-                    message.render_template(),
-                );
+                let req =
+                    SlackApiChatPostMessageRequest::new(channel.clone(), message.render_template());
 
-                let session = state
+                let session = self
                     .slack_client
                     .client
-                    .open_session(&state.slack_client.token);
+                    .open_session(&self.slack_client.token);
 
                 let res = session.chat_post_message(&req).await?;
 
@@ -141,23 +136,23 @@ impl Actor for BirthdayActor {
                     res.channel, res.ts
                 );
 
-                AwaitingSuggestion(username, employee, some_account, res.ts)
+                AwaitingSuggestion(channel.clone(), username, employee, some_account, res.ts)
             }
             (
                 OnInteraction(event),
-                AwaitingSuggestion(username, Some(employee), some_account, ts),
+                AwaitingSuggestion(channel, username, Some(employee), some_account, ts),
             ) => {
                 info!("got interaction block action: {:?}", event.clone());
 
                 match event.value {
                     Some(s) if s == "generate-message" => {
                         info!("generating message");
-                        match state.birthday_assistant.create_message(&employee).await {
+                        match self.birthday_assistant.create_message(&employee).await {
                             Ok(birthday_message) => {
                                 info!("New birthday message: {}", birthday_message);
 
                                 let interaction_id = call!(
-                                    state.slack_interaction_actor.clone(),
+                                    self.slack_interaction_actor.clone(),
                                     AddInteraction,
                                     Box::new(BirthdayActorInteractionSubscriber { actor: _myself })
                                 )?;
@@ -170,26 +165,24 @@ impl Actor for BirthdayActor {
                                 };
 
                                 let req = SlackApiChatUpdateRequest::new(
-                                    state.channel.clone(),
+                                    channel.clone(),
                                     message.render_template(),
                                     ts.clone(),
                                 );
 
-                                info!(
-                                    "Updating Slack message, channel={}, ts={}",
-                                    state.channel, ts
-                                );
+                                info!("Updating Slack message, channel={}, ts={}", channel, ts);
 
-                                let session = state
+                                let session = self
                                     .slack_client
                                     .client
-                                    .open_session(&state.slack_client.token);
+                                    .open_session(&self.slack_client.token);
 
                                 let _res = session.chat_update(&req).await;
 
                                 warn!("slack update: {:?}", _res);
 
                                 HaveSuggestion(
+                                    channel.clone(),
                                     username.clone(),
                                     Some(employee.clone()),
                                     some_account.clone(),
@@ -212,7 +205,7 @@ impl Actor for BirthdayActor {
             }
         };
 
-        state.internal = internal;
+        *state = internal;
 
         Ok(())
     }
