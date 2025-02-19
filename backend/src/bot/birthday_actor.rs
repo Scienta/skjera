@@ -10,7 +10,7 @@ use slack_morphism::prelude::*;
 use std::ops::Deref;
 use std::sync::Arc;
 use tracing::{info, warn};
-use BirthdayActorMsg::{Init, OnInteraction};
+use BirthdayActorMsg::*;
 use BirthdayActorState::*;
 
 pub(crate) struct BirthdayActor {
@@ -33,6 +33,141 @@ impl BirthdayActor {
             slack_interaction_actor,
             slack_client,
         }
+    }
+
+    pub(crate) async fn on_init(
+        &self,
+        myself: ActorRef<BirthdayActorMsg>,
+        content: String,
+        team: SlackTeamId,
+        channel: SlackChannelId,
+    ) -> anyhow::Result<BirthdayActorState> {
+        let interaction_id = call!(
+            self.slack_interaction_actor,
+            AddInteraction,
+            Box::new(BirthdayActorInteractionSubscriber { actor: myself })
+        )?;
+
+        info!("interaction_id: {:?}", interaction_id);
+
+        info!("got message: {:?}", content);
+
+        let username = content;
+
+        let employee = self
+            .dao
+            .employee_by_name(username.clone())
+            .await
+            .ok()
+            .flatten();
+
+        let some_account = match employee.clone() {
+            Some(e) => {
+                self.dao
+                    .some_account_for_network(e.id, SLACK.0.clone(), Some(team.0))
+                    .await?
+            }
+            _ => None,
+        };
+
+        let message = BirthdayMessage {
+            username: username.clone(),
+            user_id: Err("not found".to_owned()),
+            interaction_id,
+            birthday_message: None,
+        };
+
+        let req = SlackApiChatPostMessageRequest::new(channel.clone(), message.render_template());
+
+        let session = self
+            .slack_client
+            .client
+            .open_session(&self.slack_client.token);
+
+        let res = session.chat_post_message(&req).await?;
+
+        info!(
+            "Posted slack message: channel={}, ts={}",
+            res.channel, res.ts
+        );
+
+        Ok(AwaitingSuggestion(
+            channel.clone(),
+            username,
+            employee,
+            some_account,
+            res.ts,
+        ))
+    }
+
+    pub(crate) async fn create_suggestion(
+        &self,
+        myself: ActorRef<BirthdayActorMsg>,
+        event: SlackInteractionActionInfo,
+        channel: SlackChannelId,
+        username: String,
+        employee: Employee,
+        some_account: Option<SomeAccount>,
+        ts: SlackTs,
+    ) -> anyhow::Result<BirthdayActorState> {
+        info!("got interaction block action: {:?}", event.clone());
+
+        let updated = match event.value {
+            Some(s) if s == "generate-message" => {
+                info!("generating message");
+                match self.birthday_assistant.create_message(&employee).await {
+                    Ok(birthday_message) => {
+                        info!("New birthday message: {}", birthday_message);
+
+                        let interaction_id = call!(
+                            self.slack_interaction_actor.clone(),
+                            AddInteraction,
+                            Box::new(BirthdayActorInteractionSubscriber { actor: myself })
+                        )?;
+
+                        let message = BirthdayMessage {
+                            username: username.clone(),
+                            user_id: Err("not found".to_owned()),
+                            interaction_id,
+                            birthday_message: Some(birthday_message.clone()),
+                        };
+
+                        let req = SlackApiChatUpdateRequest::new(
+                            channel.clone(),
+                            message.render_template(),
+                            ts.clone(),
+                        );
+
+                        info!("Updating Slack message, channel={}, ts={}", channel, ts);
+
+                        let session = self
+                            .slack_client
+                            .client
+                            .open_session(&self.slack_client.token);
+
+                        let _res = session.chat_update(&req).await;
+
+                        warn!("slack update: {:?}", _res);
+
+                        HaveSuggestion(
+                            channel.clone(),
+                            username.clone(),
+                            Some(employee.clone()),
+                            some_account.clone(),
+                            ts.clone(),
+                            birthday_message,
+                        )
+                    }
+                    Err(e) => {
+                        warn!("unable to create message: {}", e);
+                        Fail()
+                    }
+                }
+            }
+            _ => Fail(),
+        };
+
+        Ok(updated)
     }
 }
 
@@ -80,132 +215,36 @@ impl Actor for BirthdayActor {
 
     async fn handle(
         &self,
-        _myself: ActorRef<Self::Msg>,
+        myself: ActorRef<Self::Msg>,
         message: Self::Msg,
         state: &mut Self::State,
     ) -> Result<(), ActorProcessingErr> {
         let internal = match (message, state.deref().clone()) {
             (Init(content, team), New(channel)) => {
-                let interaction_id = call!(
-                    self.slack_interaction_actor,
-                    AddInteraction,
-                    Box::new(BirthdayActorInteractionSubscriber { actor: _myself })
-                )?;
-
-                info!("interaction_id: {:?}", interaction_id);
-
-                info!("got message: {:?}", content);
-
-                let username = content;
-
-                let employee = self
-                    .dao
-                    .employee_by_name(username.clone())
-                    .await
-                    .ok()
-                    .flatten();
-
-                let some_account = match employee.clone() {
-                    Some(e) => {
-                        self.dao
-                            .some_account_for_network(e.id, SLACK.0.clone(), Some(team.0))
-                            .await?
-                    }
-                    _ => None,
-                };
-
-                let message = BirthdayMessage {
-                    username: username.clone(),
-                    user_id: Err("not found".to_owned()),
-                    interaction_id,
-                    birthday_message: None,
-                };
-
-                let req =
-                    SlackApiChatPostMessageRequest::new(channel.clone(), message.render_template());
-
-                let session = self
-                    .slack_client
-                    .client
-                    .open_session(&self.slack_client.token);
-
-                let res = session.chat_post_message(&req).await?;
-
-                info!(
-                    "Posted slack message: channel={}, ts={}",
-                    res.channel, res.ts
-                );
-
-                AwaitingSuggestion(channel.clone(), username, employee, some_account, res.ts)
+                self.on_init(myself, content, team, channel.clone()).await
             }
             (
                 OnInteraction(event),
                 AwaitingSuggestion(channel, username, Some(employee), some_account, ts),
             ) => {
-                info!("got interaction block action: {:?}", event.clone());
-
-                match event.value {
-                    Some(s) if s == "generate-message" => {
-                        info!("generating message");
-                        match self.birthday_assistant.create_message(&employee).await {
-                            Ok(birthday_message) => {
-                                info!("New birthday message: {}", birthday_message);
-
-                                let interaction_id = call!(
-                                    self.slack_interaction_actor.clone(),
-                                    AddInteraction,
-                                    Box::new(BirthdayActorInteractionSubscriber { actor: _myself })
-                                )?;
-
-                                let message = BirthdayMessage {
-                                    username: username.clone(),
-                                    user_id: Err("not found".to_owned()),
-                                    interaction_id,
-                                    birthday_message: Some(birthday_message.clone()),
-                                };
-
-                                let req = SlackApiChatUpdateRequest::new(
-                                    channel.clone(),
-                                    message.render_template(),
-                                    ts.clone(),
-                                );
-
-                                info!("Updating Slack message, channel={}, ts={}", channel, ts);
-
-                                let session = self
-                                    .slack_client
-                                    .client
-                                    .open_session(&self.slack_client.token);
-
-                                let _res = session.chat_update(&req).await;
-
-                                warn!("slack update: {:?}", _res);
-
-                                HaveSuggestion(
-                                    channel.clone(),
-                                    username.clone(),
-                                    Some(employee.clone()),
-                                    some_account.clone(),
-                                    ts.clone(),
-                                    birthday_message,
-                                )
-                            }
-                            Err(e) => {
-                                warn!("unable to create message: {}", e);
-                                Fail()
-                            }
-                        }
-                    }
-                    _ => Fail(),
-                }
+                self.create_suggestion(
+                    myself,
+                    event,
+                    channel.clone(),
+                    username.clone(),
+                    employee.clone(),
+                    some_account.clone(),
+                    ts.clone(),
+                )
+                .await
             }
             _ => {
                 warn!("Unexpected internal state");
-                Fail()
+                Ok(Fail())
             }
         };
 
-        *state = internal;
+        *state = internal?;
 
         Ok(())
     }
