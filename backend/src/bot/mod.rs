@@ -3,8 +3,8 @@ pub mod birthday_actor;
 pub mod birthdays_actor;
 pub mod hey;
 
-use crate::slack_interaction_server::SlackInteractionServerMsg::OnInteractionActions;
 use crate::slack_interaction_server::SlackInteractionServer;
+use crate::slack_interaction_server::SlackInteractionServerMsg::OnInteractionActions;
 use async_trait::async_trait;
 use axum::response::{IntoResponse, Response};
 use http::StatusCode;
@@ -122,7 +122,9 @@ where
     ) -> Response {
         info!("Received slack interaction event");
 
-        cast!(self.slack_interaction_actor, OnInteractionActions(event));
+        if let Err(e) = cast!(self.slack_interaction_actor, OnInteractionActions(event)) {
+            warn!("Could not forward event: {}", e);
+        }
 
         (StatusCode::OK, "got it!").into_response()
     }

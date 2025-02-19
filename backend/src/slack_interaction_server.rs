@@ -1,4 +1,5 @@
-use ractor::{Actor, ActorProcessingErr, ActorRef, RpcReplyPort};
+use ractor::MessagingErr::{ChannelClosed, InvalidActorType, SendErr};
+use ractor::{Actor, ActorProcessingErr, ActorRef, MessagingErr, RpcReplyPort};
 use slack_morphism::events::SlackInteractionBlockActionsEvent;
 use slack_morphism::prelude::SlackInteractionActionInfo;
 use slack_morphism::SlackActionId;
@@ -8,7 +9,15 @@ use tracing::{info, warn};
 use uuid::Uuid;
 
 pub trait InteractionSubscriber: Send + 'static {
-    fn on_interaction(&self, event: SlackInteractionActionInfo) -> anyhow::Result<()>;
+    fn on_interaction(&self, event: SlackInteractionActionInfo) -> Result<(), MessagingErr<()>>;
+}
+
+pub fn map_err<T>(err: MessagingErr<T>) -> MessagingErr<()> {
+    match err {
+        SendErr(..) => SendErr(()),
+        ChannelClosed => ChannelClosed,
+        InvalidActorType => InvalidActorType,
+    }
 }
 
 pub enum SlackInteractionServerMsg {
@@ -78,7 +87,14 @@ impl Actor for SlackInteractionServer {
                     if let Ok(interaction_id) = action.clone().action_id.try_into() {
                         match state.handlers.get(&interaction_id) {
                             Some(recipient) => {
-                                recipient.on_interaction(action.clone());
+                                let res = recipient.on_interaction(action.clone());
+
+                                match res {
+                                    Ok(_) => (),
+                                    Err(err) => {
+                                        warn!("Ignored: {}", err)
+                                    }
+                                }
 
                                 // cast!(recipient, OnInteractionAction(action.clone()))?;
                             }
