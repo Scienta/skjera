@@ -1,20 +1,30 @@
 use ractor::concurrency::{Duration, JoinHandle};
 use ractor::{
-    Actor, ActorCell, ActorId, ActorProcessingErr, ActorRef, MessagingErr, SupervisionEvent,
+    Actor, ActorCell, ActorId, ActorProcessingErr, ActorRef, MessagingErr, RpcReplyPort,
+    SupervisionEvent,
 };
 use std::collections::HashMap;
+use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::Ordering::SeqCst;
 use tracing::{debug, info};
 
 pub struct Watchdog;
+
 pub enum WatchdogMsg {
     Register(ActorCell, Duration),
     Unregister(ActorCell),
     Ping(ActorId),
     Timeout(ActorId),
+    Stats(RpcReplyPort<WatchdogStats>),
+}
+
+pub struct WatchdogStats {
+    pub kills: usize,
 }
 
 pub struct WatchdogState {
     subjects: HashMap<ActorId, Registration>,
+    kills: usize,
 }
 
 struct Registration {
@@ -36,6 +46,7 @@ impl Actor for Watchdog {
     ) -> Result<Self::State, ActorProcessingErr> {
         Ok(WatchdogState {
             subjects: HashMap::new(),
+            kills: 0,
         })
     }
 
@@ -100,11 +111,15 @@ impl Actor for Watchdog {
                         );
                         actor.unlink(myself.get_cell());
                         actor.kill();
+                        state.kills += 1;
                     }
                     _ => (),
                 };
                 Ok(())
             }
+            WatchdogMsg::Stats(reply) => reply
+                .send(WatchdogStats { kills: state.kills })
+                .map_err(|e| ActorProcessingErr::from(e)),
         }
     }
 
