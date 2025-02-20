@@ -50,17 +50,6 @@ impl Actor for Watchdog {
         })
     }
 
-    async fn post_stop(
-        &self,
-        myself: ActorRef<Self::Msg>,
-        state: &mut Self::State,
-    ) -> Result<(), ActorProcessingErr> {
-        for (_, Registration { actor, .. }) in &state.subjects {
-            actor.unlink(myself.get_cell());
-        }
-        Ok(())
-    }
-
     async fn handle(
         &self,
         myself: ActorRef<Self::Msg>,
@@ -70,8 +59,6 @@ impl Actor for Watchdog {
         match message {
             WatchdogMsg::Register(actor, timeout) => {
                 let id = actor.get_id();
-
-                actor.link(myself.get_cell());
 
                 let timer = myself.send_after(timeout, move || WatchdogMsg::Timeout(id));
 
@@ -109,7 +96,6 @@ impl Actor for Watchdog {
                             actor_name = actor.get_name(),
                             "watchdog timeout, killing",
                         );
-                        actor.unlink(myself.get_cell());
                         actor.kill();
                         state.kills += 1;
                     }
