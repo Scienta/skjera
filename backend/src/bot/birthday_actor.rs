@@ -185,13 +185,13 @@ impl BirthdayActor {
     }
 }
 
-struct Fail;
+pub(crate) struct Fail;
 
-struct New {
+pub(crate) struct New {
     channel: SlackChannelId,
 }
 
-struct AwaitingSuggestion {
+pub(crate) struct AwaitingSuggestion {
     timer: TimerT,
     channel: SlackChannelId,
     username: String,
@@ -200,7 +200,7 @@ struct AwaitingSuggestion {
     ts: SlackTs,
 }
 
-struct HaveSuggestion {
+pub(crate) struct HaveSuggestion {
     timer: TimerT,
     channel: SlackChannelId,
     username: String,
@@ -210,7 +210,7 @@ struct HaveSuggestion {
     birthday_message: String,
 }
 
-struct Completed;
+pub(crate) struct Completed;
 
 pub enum BirthdayActorState {
     Fail(Fail),

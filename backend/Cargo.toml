@@ -51,5 +51,9 @@ tracing-subscriber = { version = "0.3.19", features = ["env-filter", "registry",
 url = "2.5.4"
 uuid = { version = "1.13.1", features = ["v6", "v7", "v8"] }
 
+
+[dev-dependencies]
+tracing-test = "0.2.5"
+
 [build-dependencies]
 build-data = "0.2.1"

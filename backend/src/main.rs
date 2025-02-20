@@ -1,3 +1,4 @@
+mod actor;
 mod birthday_assistant;
 mod bot;
 mod logging;
