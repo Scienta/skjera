@@ -3,7 +3,7 @@ use crate::bot::birthdays_actor::BirthdaysActorMsg;
 use crate::bot::birthdays_actor::BirthdaysActorMsg::*;
 use crate::bot::{SlackHandler, SlackHandlerResponse};
 use async_trait::async_trait;
-use ractor::{call_t, cast, ActorRef};
+use ractor::{call, cast, ActorRef};
 use slack_morphism::prelude::*;
 use tracing::{info, warn};
 use SlackHandlerResponse::*;
@@ -44,10 +44,9 @@ impl SlackHandler for BirthdayHandler {
                 let (_, content) = words.split_at(2);
                 let content = content.join(" ");
 
-                let addr = call_t!(
+                let addr = call!(
                     self.birthdays_actor,
                     CreateBirthdayActor,
-                    1000,
                     channel.clone()
                 )
                 .expect("could not start birthday actor");

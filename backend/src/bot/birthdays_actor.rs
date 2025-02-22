@@ -3,10 +3,10 @@ use crate::bot::birthday_actor::{BirthdayActor, BirthdayActorMsg};
 use crate::bot::SlackClient;
 use crate::model::Dao;
 use crate::slack_interaction_server::SlackInteractionServer;
-use ractor::{Actor, ActorProcessingErr, ActorRef, RpcReplyPort};
+use ractor::{Actor, ActorProcessingErr, ActorRef, RpcReplyPort, SupervisionEvent};
 use slack_morphism::SlackChannelId;
 use std::sync::Arc;
-use tracing::info;
+use tracing::*;
 use uuid::Uuid;
 
 pub enum BirthdaysActorMsg {
@@ -63,7 +63,7 @@ impl Actor for BirthdaysActor {
                 info!("Creating new BirthdayActor");
                 let name = format!("birthday/{}", Uuid::now_v7().to_string());
 
-                let (actor, _join_handle) = myself
+                let (actor, _) = myself
                     .spawn_linked(
                         Some(name),
                         BirthdayActor::new(
@@ -76,12 +76,21 @@ impl Actor for BirthdaysActor {
                     )
                     .await?;
 
-                // TODO: this is there the join handle should be kept or something
-
                 reply.send(actor)?
             }
         }
 
+        Ok(())
+    }
+
+    async fn handle_supervisor_evt(
+        &self,
+        _: ActorRef<Self::Msg>,
+        _: SupervisionEvent,
+        _: &mut Self::State,
+    ) -> Result<(), ActorProcessingErr> {
+        // This has to be overridden, the default behavior is to kill this actor on any child's
+        // exit.
         Ok(())
     }
 }
