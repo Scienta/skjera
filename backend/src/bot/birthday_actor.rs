@@ -11,7 +11,7 @@ use slack_morphism::prelude::*;
 use std::ops::Deref;
 use std::sync::Arc;
 use std::time::Duration;
-use tracing::{error, info, warn};
+use tracing::*;
 use BirthdayActorMsg::*;
 use BirthdayActorState::*;
 
@@ -111,7 +111,7 @@ impl BirthdayActor {
             employee,
             some_account,
             ts,
-            birthday_message: _,
+            birthday_message,
         }: &AwaitingInteraction,
     ) -> anyhow::Result<BirthdayActorState> {
         info!("got interaction block action: {:?}", event.clone());
@@ -126,6 +126,11 @@ impl BirthdayActor {
         let updated = match event.value {
             Some(s) if s == "generate-message" => {
                 info!("generating message");
+
+                let message = BirthdayMessage::busy(&who, some_account, &birthday_message);
+
+                self.update_message(&message, channel, ts).await;
+
                 match self.birthday_assistant.create_message(&employee).await {
                     Ok(birthday_message) => {
                         info!("New birthday message: {}", birthday_message);
@@ -154,20 +159,7 @@ impl BirthdayActor {
                             Some(send_interaction_id),
                         );
 
-                        let req = SlackApiChatUpdateRequest::new(
-                            channel.clone(),
-                            message.render_template(),
-                            ts.clone(),
-                        );
-
-                        info!("Updating Slack message, channel={}, ts={}", channel, ts);
-
-                        let session = self
-                            .slack_client
-                            .client
-                            .open_session(&self.slack_client.token);
-
-                        let _res = session.chat_update(&req).await;
+                        self.update_message(&message, channel, ts).await;
 
                         AwaitingInteraction(AwaitingInteraction {
                             timer: myself.send_after(self.timeout_duration, || Timeout),
@@ -189,6 +181,27 @@ impl BirthdayActor {
         };
 
         Ok(updated)
+    }
+
+    async fn update_message(
+        &self,
+        message: &BirthdayMessage,
+        channel: &SlackChannelId,
+        ts: &SlackTs,
+    ) -> () {
+        let req =
+            SlackApiChatUpdateRequest::new(channel.clone(), message.render_template(), ts.clone());
+
+        info!("Updating Slack message, channel={}, ts={}", channel, ts);
+
+        let session = self
+            .slack_client
+            .client
+            .open_session(&self.slack_client.token);
+
+        if let Err(e) = session.chat_update(&req).await {
+            warn!("unable to update Slack message: {}", e);
+        }
     }
 }
 
@@ -272,22 +285,11 @@ impl Actor for BirthdayActor {
     ) -> Result<(), ActorProcessingErr> {
         if let Some((channel, ts)) = state.ts() {
             info!("Stopping, ts={}", ts);
-            let session = self
-                .slack_client
-                .client
-                .open_session(&self.slack_client.token);
 
-            let req = &SlackApiChatUpdateRequest::new(
-                channel.clone(),
-                BirthdayMessage::deleted("unknown".to_string(), None, state.birthday_message())
-                    .render_template(),
-                ts,
-            );
+            let message =
+                BirthdayMessage::deleted("unknown".to_string(), None, state.birthday_message());
 
-            match session.chat_update(&req).await {
-                Ok(_) => (),
-                Err(e) => error!("Error updating slack message: {}", e),
-            };
+            self.update_message(&message, &channel, &ts).await;
         } else {
             info!("Stopping")
         }
@@ -311,7 +313,7 @@ impl Actor for BirthdayActor {
 
                 myself.stop(None);
                 // We don't want to lose the internal state, so just return here.
-                return Ok(())
+                return Ok(());
             }
             _ => {
                 let e = anyhow!("Unexpected internal message/state");
@@ -354,6 +356,7 @@ pub struct BirthdayMessage {
     pub send_id: Option<SlackInteractionId>,
 
     pub birthday_message: Option<String>,
+    pub busy: bool,
     pub deleted: bool,
 }
 
@@ -373,6 +376,7 @@ impl BirthdayMessage {
             generate_message_id: Some(generate_message_id),
             send_id: None,
             birthday_message: None,
+            busy: false,
             deleted: false,
         }
     }
@@ -394,6 +398,27 @@ impl BirthdayMessage {
             generate_message_id: Some(generate_message_id),
             send_id,
             birthday_message: Some(birthday_message.clone()),
+            busy: false,
+            deleted: false,
+        }
+    }
+
+    fn busy(
+        who: &String,
+        some_account: &Option<SomeAccount>,
+        birthday_message: &Option<String>,
+    ) -> BirthdayMessage {
+        BirthdayMessage {
+            who: who.clone(),
+            user_id: some_account
+                .clone()
+                .map(|sa| sa.subject)
+                .flatten()
+                .map(SlackUserId),
+            generate_message_id: None,
+            send_id: None,
+            birthday_message: birthday_message.clone(),
+            busy: true,
             deleted: false,
         }
     }
@@ -409,6 +434,7 @@ impl BirthdayMessage {
             generate_message_id: None,
             send_id: None,
             birthday_message,
+            busy: false,
             deleted: true,
         }
     }
@@ -421,13 +447,16 @@ impl SlackMessageTemplate for BirthdayMessage {
                 "Happy birthday to {} :partying_face: :tada:",
                 self.user_id.clone().map(|u| u.to_slack_format()).unwrap_or_else(||self.who.clone())
             ))),
-            optionally_into(self.generate_message_id.is_some() => SlackActionsBlock::new(slack_blocks![
+            optionally_into(!self.busy && self.generate_message_id.is_some() => SlackActionsBlock::new(slack_blocks![
                 some_into(SlackBlockButtonElement::new(
                     self.generate_message_id.clone().unwrap().into(),
                     pt!("Generate message")).
                     with_value("generate-message".to_string())
                 )
             ])),
+            optionally_into(self.busy => SlackSectionBlock::new().with_text(md!(
+                "Generating, please wait! .."
+            ))),
             optionally_into(self.birthday_message.is_some() =>
                 SlackDividerBlock::new()
             ),
@@ -435,7 +464,7 @@ impl SlackMessageTemplate for BirthdayMessage {
                 "> {}",
                 self.birthday_message.clone().unwrap()))
             ),
-            optionally_into(self.send_id.is_some() => SlackActionsBlock::new(slack_blocks![
+            optionally_into(!self.busy && self.send_id.is_some() => SlackActionsBlock::new(slack_blocks![
                 some_into(SlackBlockButtonElement::new(
                     self.send_id.clone().unwrap().into(),
                     pt!("Send")).
