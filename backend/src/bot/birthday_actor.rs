@@ -44,11 +44,7 @@ impl BirthdayActor {
     pub(crate) async fn on_init(
         &self,
         myself: ActorRef<BirthdayActorMsg>,
-        New {
-            team,
-            channel,
-            who,
-        }: &New,
+        New { team, channel, who }: &New,
     ) -> anyhow::Result<BirthdayActorState> {
         let interaction_id = call!(
             self.slack_interaction_actor,
@@ -93,13 +89,14 @@ impl BirthdayActor {
 
         let timer = myself.send_after(self.timeout_duration, || Timeout);
 
-        Ok(AwaitingSuggestion(AwaitingSuggestion {
+        Ok(AwaitingInteraction(AwaitingInteraction {
             timer,
             channel: channel.clone(),
             who,
             employee,
             some_account,
             ts: res.ts,
+            birthday_message: None,
         }))
     }
 
@@ -107,14 +104,15 @@ impl BirthdayActor {
         &self,
         myself: ActorRef<BirthdayActorMsg>,
         event: SlackInteractionActionInfo,
-        AwaitingSuggestion {
+        AwaitingInteraction {
             timer,
             channel,
             who,
             employee,
             some_account,
             ts,
-        }: &AwaitingSuggestion,
+            birthday_message: _,
+        }: &AwaitingInteraction,
     ) -> anyhow::Result<BirthdayActorState> {
         info!("got interaction block action: {:?}", event.clone());
 
@@ -132,7 +130,15 @@ impl BirthdayActor {
                     Ok(birthday_message) => {
                         info!("New birthday message: {}", birthday_message);
 
-                        let interaction_id = call!(
+                        let generate_interaction_id = call!(
+                            self.slack_interaction_actor.clone(),
+                            AddInteraction,
+                            Box::new(BirthdayActorInteractionSubscriber {
+                                actor: myself.clone()
+                            })
+                        )?;
+
+                        let send_interaction_id = call!(
                             self.slack_interaction_actor.clone(),
                             AddInteraction,
                             Box::new(BirthdayActorInteractionSubscriber {
@@ -143,8 +149,9 @@ impl BirthdayActor {
                         let message = BirthdayMessage::suggestion(
                             &who,
                             some_account,
-                            interaction_id,
+                            generate_interaction_id,
                             &birthday_message,
+                            Some(send_interaction_id),
                         );
 
                         let req = SlackApiChatUpdateRequest::new(
@@ -162,16 +169,14 @@ impl BirthdayActor {
 
                         let _res = session.chat_update(&req).await;
 
-                        warn!("slack update: {:?}", _res);
-
-                        HaveSuggestion(HaveSuggestion {
+                        AwaitingInteraction(AwaitingInteraction {
                             timer: myself.send_after(self.timeout_duration, || Timeout),
                             channel: channel.clone(),
                             who: who.clone(),
                             employee: Some(employee.clone()),
                             some_account: some_account.clone(),
                             ts: ts.clone(),
-                            birthday_message,
+                            birthday_message: Some(birthday_message),
                         })
                     }
                     Err(e) => {
@@ -187,41 +192,32 @@ impl BirthdayActor {
     }
 }
 
+#[derive(Debug)]
 pub(crate) struct Fail;
 
+#[derive(Debug)]
 pub(crate) struct New {
     team: SlackTeamId,
     channel: SlackChannelId,
     who: String,
 }
 
-pub(crate) struct AwaitingSuggestion {
+#[derive(Debug)]
+pub(crate) struct AwaitingInteraction {
     timer: TimerT,
     channel: SlackChannelId,
     who: String,
     employee: Option<Employee>,
     some_account: Option<SomeAccount>,
     ts: SlackTs,
+    birthday_message: Option<String>,
 }
 
-pub(crate) struct HaveSuggestion {
-    timer: TimerT,
-    channel: SlackChannelId,
-    who: String,
-    employee: Option<Employee>,
-    some_account: Option<SomeAccount>,
-    ts: SlackTs,
-    birthday_message: String,
-}
-
-pub(crate) struct Completed;
-
+#[derive(Debug)]
 pub enum BirthdayActorState {
     Fail(Fail),
     New(New),
-    AwaitingSuggestion(AwaitingSuggestion),
-    HaveSuggestion(HaveSuggestion),
-    Completed(Completed),
+    AwaitingInteraction(AwaitingInteraction),
 }
 
 impl BirthdayActorState {
@@ -229,11 +225,7 @@ impl BirthdayActorState {
         match self {
             BirthdayActorState::Fail(..) => None,
             New(..) => None,
-            BirthdayActorState::Completed(..) => None,
-            AwaitingSuggestion(AwaitingSuggestion { channel, ts, .. }) => {
-                Some((channel.clone(), ts.clone()))
-            }
-            HaveSuggestion(HaveSuggestion { channel, ts, .. }) => {
+            AwaitingInteraction(AwaitingInteraction { channel, ts, .. }) => {
                 Some((channel.clone(), ts.clone()))
             }
         }
@@ -241,9 +233,9 @@ impl BirthdayActorState {
 
     fn birthday_message(&self) -> Option<String> {
         match self {
-            HaveSuggestion(HaveSuggestion {
+            AwaitingInteraction(AwaitingInteraction {
                 birthday_message, ..
-            }) => Some(birthday_message.clone()),
+            }) => birthday_message.clone(),
             _ => None,
         }
     }
@@ -311,15 +303,15 @@ impl Actor for BirthdayActor {
     ) -> Result<(), ActorProcessingErr> {
         let internal = match (message, state.deref()) {
             (Init, New(new)) => self.on_init(myself, new).await,
-            (OnInteraction(event), AwaitingSuggestion(s)) => {
+            (OnInteraction(event), AwaitingInteraction(s)) => {
                 self.create_suggestion(myself, event, s).await
             }
             (Timeout, _) => {
                 info!("User interaction timed out");
 
                 myself.stop(None);
-
-                Ok(BirthdayActorState::Completed(Completed {}))
+                // We don't want to lose the internal state, so just return here.
+                return Ok(())
             }
             _ => {
                 let e = anyhow!("Unexpected internal message/state");
@@ -390,6 +382,7 @@ impl BirthdayMessage {
         some_account: &Option<SomeAccount>,
         generate_message_id: SlackInteractionId,
         birthday_message: &String,
+        send_id: Option<SlackInteractionId>,
     ) -> BirthdayMessage {
         BirthdayMessage {
             who: who.clone(),
@@ -399,7 +392,7 @@ impl BirthdayMessage {
                 .flatten()
                 .map(SlackUserId),
             generate_message_id: Some(generate_message_id),
-            send_id: None,
+            send_id,
             birthday_message: Some(birthday_message.clone()),
             deleted: false,
         }
@@ -424,14 +417,10 @@ impl BirthdayMessage {
 impl SlackMessageTemplate for BirthdayMessage {
     fn render_template(&self) -> SlackMessageContent {
         SlackMessageContent::new().with_blocks(slack_blocks![
-            some_into(SlackHeaderBlock::new(pt!(
-                "It's a birthday!! :partying_face: :tada:"
-            ))),
             some_into(SlackSectionBlock::new().with_text(md!(
                 "Happy birthday to {} :partying_face: :tada:",
                 self.user_id.clone().map(|u| u.to_slack_format()).unwrap_or_else(||self.who.clone())
             ))),
-            some_into(SlackDividerBlock::new()),
             optionally_into(self.generate_message_id.is_some() => SlackActionsBlock::new(slack_blocks![
                 some_into(SlackBlockButtonElement::new(
                     self.generate_message_id.clone().unwrap().into(),
@@ -439,8 +428,11 @@ impl SlackMessageTemplate for BirthdayMessage {
                     with_value("generate-message".to_string())
                 )
             ])),
+            optionally_into(self.birthday_message.is_some() =>
+                SlackDividerBlock::new()
+            ),
             optionally_into(self.birthday_message.is_some() => SlackSectionBlock::new().with_text(md!(
-                "Happy birthday message:\n> {}",
+                "> {}",
                 self.birthday_message.clone().unwrap()))
             ),
             optionally_into(self.send_id.is_some() => SlackActionsBlock::new(slack_blocks![
