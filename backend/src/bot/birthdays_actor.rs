@@ -4,13 +4,18 @@ use crate::bot::SlackClient;
 use crate::model::Dao;
 use crate::slack_interaction_server::SlackInteractionServer;
 use ractor::{Actor, ActorProcessingErr, ActorRef, RpcReplyPort, SupervisionEvent};
-use slack_morphism::SlackChannelId;
+use slack_morphism::prelude::*;
 use std::sync::Arc;
 use tracing::*;
 use uuid::Uuid;
 
 pub enum BirthdaysActorMsg {
-    CreateBirthdayActor(SlackChannelId, RpcReplyPort<ActorRef<BirthdayActorMsg>>),
+    CreateBirthdayActor(
+        SlackTeamId,
+        SlackChannelId,
+        String,
+        RpcReplyPort<ActorRef<BirthdayActorMsg>>,
+    ),
 }
 
 pub(crate) struct BirthdaysActor {
@@ -59,7 +64,7 @@ impl Actor for BirthdaysActor {
         _: &mut Self::State,
     ) -> Result<(), ActorProcessingErr> {
         match message {
-            BirthdaysActorMsg::CreateBirthdayActor(channel, reply) => {
+            BirthdaysActorMsg::CreateBirthdayActor(team, channel, who, reply) => {
                 info!("Creating new BirthdayActor");
                 let name = format!("birthday/{}", Uuid::now_v7().to_string());
 
@@ -72,7 +77,7 @@ impl Actor for BirthdaysActor {
                             self.slack_interaction_actor.clone(),
                             self.slack_client.clone(),
                         ),
-                        (channel,),
+                        (team, channel, who),
                     )
                     .await?;
 

@@ -13,7 +13,7 @@ use slack_morphism::prelude::*;
 use sqlx::{Database, Pool};
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use tracing::{debug, info, instrument, warn};
+use tracing::*;
 
 // pub(crate) type SlackClientSession<'a> =
 //     slack_morphism::SlackClientSession<'a, SlackClientHyperHttpsConnector>;
@@ -101,7 +101,7 @@ where
 
     #[instrument(skip(self, event))]
     pub(crate) async fn on_event<'a>(self: &Self, event: SlackPushEventCallback) -> Response {
-        info!("Received slack push event");
+        trace!("Received slack push event");
 
         match event.event.clone() {
             SlackEventCallbackBody::Message(body) => self.on_message(event, body).await,

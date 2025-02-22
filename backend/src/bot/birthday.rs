@@ -1,11 +1,10 @@
-use crate::bot::birthday_actor::BirthdayActorMsg::*;
 use crate::bot::birthdays_actor::BirthdaysActorMsg;
 use crate::bot::birthdays_actor::BirthdaysActorMsg::*;
 use crate::bot::{SlackHandler, SlackHandlerResponse};
 use async_trait::async_trait;
-use ractor::{call, cast, ActorRef};
+use ractor::{call, ActorRef};
 use slack_morphism::prelude::*;
-use tracing::{info, warn};
+use tracing::*;
 use SlackHandlerResponse::*;
 
 #[derive(Clone)]
@@ -47,15 +46,13 @@ impl SlackHandler for BirthdayHandler {
                 let addr = call!(
                     self.birthdays_actor,
                     CreateBirthdayActor,
-                    channel.clone()
+                    event.team_id.clone(),
+                    channel.clone(),
+                    content.clone()
                 )
                 .expect("could not start birthday actor");
 
                 info!("new birthday created: {:?}", addr);
-
-                if let Err(e) = cast!(addr, Init(content.clone(), event.team_id.clone())) {
-                    warn!("could not initialize birthday actor: {:?}", e);
-                }
 
                 Handled
             }
