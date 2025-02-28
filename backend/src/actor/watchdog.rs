@@ -4,8 +4,6 @@ use ractor::{
     SupervisionEvent,
 };
 use std::collections::HashMap;
-use std::sync::atomic::AtomicUsize;
-use std::sync::atomic::Ordering::SeqCst;
 use tracing::{debug, info};
 
 pub struct Watchdog;
