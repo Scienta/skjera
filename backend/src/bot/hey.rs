@@ -1,17 +1,19 @@
-use crate::bot::SlackHandlerResponse::NotHandled;
-use crate::bot::{SlackClient, SlackHandler, SlackHandlerResponse};
-use async_trait::async_trait;
+use crate::bot::SlackClient;
 use slack_morphism::prelude::*;
 use std::sync::Arc;
 use tracing::{info, warn};
 
-#[derive(Clone)]
 pub(crate) struct HeyHandler {
     pub(crate) slack_client: Arc<SlackClient>,
 }
 
 impl HeyHandler {
-    async fn on_msg(self: &Self, sender: &SlackUserId, channel: &SlackChannelId, content: &String) {
+    pub(crate) async fn on_message(
+        self: &Self,
+        sender: &SlackUserId,
+        channel: &SlackChannelId,
+        content: &String,
+    ) {
         info!("got message: {:?}", content);
 
         #[derive(Debug, Clone)]
@@ -68,31 +70,5 @@ impl HeyHandler {
             Ok(_) => (),
             Err(err) => warn!("could not post message: {}", err),
         }
-    }
-}
-
-#[async_trait]
-impl SlackHandler for HeyHandler {
-    async fn handle(
-        &mut self,
-        _: &SlackPushEventCallback,
-        body: &SlackMessageEvent,
-    ) -> SlackHandlerResponse {
-        let (sender, channel, content) = match (
-            body.sender.user.clone(),
-            body.origin.channel.clone(),
-            body.content.clone().and_then(|c| c.text),
-        ) {
-            (Some(sender), Some(channel), Some(content)) => (sender, channel, content),
-            _ => return NotHandled,
-        };
-
-        if !content.starts_with("hey") {
-            return NotHandled;
-        }
-
-        self.on_msg(&sender, &channel, &content).await;
-
-        SlackHandlerResponse::Handled
     }
 }

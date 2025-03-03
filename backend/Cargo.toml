@@ -32,7 +32,7 @@ opentelemetry = { version = "0.27.1", features = ["tracing"] }
 opentelemetry-otlp = { version = "0.27.0", features = ["tracing", "metrics", "logs", "serialize", "http-proto", "reqwest-rustls", "reqwest-client"] }
 opentelemetry-semantic-conventions = { version = "0.27.0" }
 opentelemetry_sdk = { version = "0.27.1", features = ["tracing", "logs", "rt-tokio", ] }
-ractor = { version = "0.15.1", features = ["async-trait"] }
+ractor = { version = "0.15.1", features = ["async-trait", "monitors"] }
 rustls = { version = "0.23.21" }
 reqwest = { version = "0.11.27", features = ["json"] }
 serde = { version = "1.0.217", features = ["derive"] }

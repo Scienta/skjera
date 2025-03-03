@@ -1,24 +1,19 @@
-pub mod birthday;
 pub mod birthday_actor;
 pub mod birthdays_actor;
 pub mod hey;
+pub mod skjera_slack_conversation;
 
+use crate::actor::slack_conversation_server::SlackConversationServerMsg;
+use crate::bot::skjera_slack_conversation::*;
 use crate::slack_interaction_server::SlackInteractionServer;
 use crate::slack_interaction_server::SlackInteractionServerMsg::OnInteractionActions;
-use async_trait::async_trait;
 use axum::response::{IntoResponse, Response};
 use http::StatusCode;
 use ractor::{cast, Actor, ActorRef};
 use slack_morphism::prelude::*;
 use sqlx::{Database, Pool};
 use std::sync::Arc;
-use tokio::sync::Mutex;
 use tracing::*;
-
-// pub(crate) type SlackClientSession<'a> =
-//     slack_morphism::SlackClientSession<'a, SlackClientHyperHttpsConnector>;
-// pub(crate) type SlackClient =
-//     slack_morphism::SlackClient<SlackClientHyperHttpsConnector>;
 
 pub(crate) type SlackClient = SlackClientWrapper;
 
@@ -28,33 +23,6 @@ pub(crate) struct SlackClientWrapper {
     pub(crate) token: SlackApiToken,
 }
 
-// impl<'a> SlackClientWrapper {
-//     pub(crate) async fn run_in_session<'b, FN, F, T>(&self, f: FN) -> T
-//     where
-//         FN: Fn(SlackClientSession<'b>) -> F,
-//         F: std::future::Future<Output = T>,
-//     {
-//         // let session = self.client.open_session::<'a>(&self.token);
-//         // f(session)
-//
-//         self.client.run_in_session::<'b>(&self.token.clone(), f).await
-//     }
-// }
-
-pub(crate) enum SlackHandlerResponse {
-    Handled,
-    NotHandled,
-}
-
-#[async_trait]
-pub(crate) trait SlackHandler {
-    async fn handle(
-        &mut self,
-        event: &SlackPushEventCallback,
-        body: &SlackMessageEvent,
-    ) -> SlackHandlerResponse;
-}
-
 pub(crate) struct SkjeraBot<Db>
 where
     Db: Database,
@@ -62,8 +30,8 @@ where
 {
     client: Arc<SlackClient>,
     pool: Pool<Db>,
-    handlers: Vec<Arc<Mutex<dyn SlackHandler + Send + Sync>>>,
     slack_interaction_actor: ActorRef<<SlackInteractionServer as Actor>::Msg>,
+    slack_conversation_server: ActorRef<SlackConversationServerMsg<SkjeraConversationMsg>>,
 }
 
 impl<Db: Database + Send + Sync> Clone for SkjeraBot<Db>
@@ -74,8 +42,8 @@ where
         Self {
             client: self.client.clone(),
             pool: self.pool.clone(),
-            handlers: self.handlers.clone(),
             slack_interaction_actor: self.slack_interaction_actor.clone(),
+            slack_conversation_server: self.slack_conversation_server.clone(),
         }
     }
 }
@@ -88,14 +56,14 @@ where
     pub fn new(
         client: Arc<SlackClient>,
         pool: Pool<Db>,
-        handlers: Vec<Arc<Mutex<dyn SlackHandler + Send + Sync>>>,
         slack_interaction_actor: ActorRef<<SlackInteractionServer as Actor>::Msg>,
+        slack_conversation_server: ActorRef<SlackConversationServerMsg<SkjeraConversationMsg>>,
     ) -> Self {
         SkjeraBot {
             client,
             pool,
-            handlers,
             slack_interaction_actor,
+            slack_conversation_server,
         }
     }
 
@@ -103,16 +71,24 @@ where
     pub(crate) async fn on_event<'a>(self: &Self, event: SlackPushEventCallback) -> Response {
         trace!("Received slack push event");
 
-        match event.event.clone() {
-            SlackEventCallbackBody::Message(body) => self.on_message(event, body).await,
-            // SlackEventCallbackBody::AppMention(event) => on_app_mention(event),
-            _ => {
-                warn!("unhandled");
-                ()
-            }
-        };
+        match &event.event {
+            SlackEventCallbackBody::Message(body) if body.origin.channel.is_some() => {
+                let event = SlackConversationServerMsg::<SkjeraConversationMsg>::OnPushEvent {
+                    team: event.team_id.clone(),
+                    channel: body.origin.channel.clone().unwrap(),
+                    event,
+                };
 
-        (StatusCode::OK, "got it!").into_response()
+                match self.slack_conversation_server.cast(event) {
+                    Ok(_) => (StatusCode::OK, "got it!").into_response(),
+                    Err(_) => {
+                        // warn!("Slack conversation error: {:?}", e);
+                        (StatusCode::INTERNAL_SERVER_ERROR, "boo").into_response()
+                    }
+                }
+            }
+            _ => (StatusCode::INTERNAL_SERVER_ERROR, "boo").into_response(),
+        }
     }
 
     #[instrument(skip(self, event))]
@@ -127,32 +103,5 @@ where
         }
 
         (StatusCode::OK, "got it!").into_response()
-    }
-
-    async fn on_message<'a>(self: &Self, event: SlackPushEventCallback, body: SlackMessageEvent) {
-        match (&body.sender.bot_id, &body.origin.channel_type) {
-            (bot_id, Some(SlackChannelType(channel_type))) => {
-                if channel_type != "im" {
-                    return;
-                }
-
-                // This is set if this bot was the sender
-                if bot_id.is_some() {
-                    debug!("Ignoring own message");
-                    return;
-                }
-
-                info!("got message: {:?}", body.clone());
-
-                for h in self.handlers.iter() {
-                    let r = h.lock().await.handle(&event, &body).await;
-                    match r {
-                        SlackHandlerResponse::NotHandled => {}
-                        SlackHandlerResponse::Handled => return,
-                    }
-                }
-            }
-            _ => (),
-        };
     }
 }

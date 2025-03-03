@@ -13,10 +13,14 @@ mod slack_client;
 mod slack_interaction_server;
 mod web;
 
+use crate::actor::slack_conversation_server::{
+    SlackConversationServer, SlackConversationServerArguments, SlackConversationServerMsg,
+};
 use crate::birthday_assistant::BirthdayAssistant;
-use crate::bot::birthday::BirthdayHandler;
 use crate::bot::birthdays_actor::{BirthdaysActor, BirthdaysActorMsg};
-use crate::bot::hey::HeyHandler;
+use crate::bot::skjera_slack_conversation::{
+    SkjeraSlackConversationFactory, SkjeraConversationMsg,
+};
 use crate::bot::SlackClient;
 use crate::model::*;
 use crate::session::SkjeraSessionData;
@@ -39,7 +43,6 @@ use std::string::ToString;
 use std::sync::Arc;
 use tokio::net::TcpListener;
 use tokio::signal;
-use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
 use tower_http::services::ServeDir;
 use tower_http::trace::TraceLayer;
@@ -136,7 +139,7 @@ async fn main() {
         .ok()
         .map(|assistant_id| BirthdayAssistant::new(async_openai::Client::new(), assistant_id));
 
-    let (slack_client, bot, birthdays) = match configure_slack(
+    let (slack_client, bot, birthdays, slack_conversation_server) = match configure_slack(
         pool.clone(),
         dao.clone(),
         birthday_bot.clone(),
@@ -185,6 +188,13 @@ async fn main() {
     slack_interaction_server.stop(None);
     slack_interaction_server_actor.await.unwrap();
 
+    if let Some((slack_conversation_server, slack_conversation_server_actor)) =
+        slack_conversation_server
+    {
+        slack_conversation_server.stop(None);
+        slack_conversation_server_actor.await.unwrap();
+    }
+
     logging_subsystem.shutdown().await;
 
     if let Err(e) = r {
@@ -204,6 +214,10 @@ async fn configure_slack(
     Option<Arc<SlackClient>>,
     Option<bot::SkjeraBot<Postgres>>,
     Option<(ActorRef<BirthdaysActorMsg>, JoinHandle<()>)>,
+    Option<(
+        ActorRef<SlackConversationServerMsg<SkjeraConversationMsg>>,
+        JoinHandle<()>,
+    )>,
 )> {
     if let (Some(slack_config), Some(birthday_assistant)) = (slack_config, birthday_assistant) {
         let slack_client = slack_morphism::prelude::SlackClient::new(
@@ -216,8 +230,6 @@ async fn configure_slack(
         };
 
         let slack_client = Arc::new(slack_client);
-
-        let mut handlers: Vec<Arc<Mutex<dyn bot::SlackHandler + Send + Sync>>> = Vec::new();
 
         let (birthdays, birthdays_actor) = Actor::spawn(
             None,
@@ -232,27 +244,33 @@ async fn configure_slack(
         .await
         .expect("Actor failed to start");
 
-        let birthday_handler = BirthdayHandler::new(birthdays.clone());
-        handlers.push(Arc::new(Mutex::new(birthday_handler)));
+        let skjera_slack_conversation_factory =
+            SkjeraSlackConversationFactory::new(birthdays.clone(), slack_client.clone());
+        let conversation_server = SlackConversationServer::new(skjera_slack_conversation_factory);
 
-        handlers.push(Arc::new(Mutex::new(HeyHandler {
-            slack_client: slack_client.clone(),
-        })));
+        let (slack_conversation_server, slack_conversation_server_handle) = Actor::spawn(
+            None,
+            conversation_server,
+            SlackConversationServerArguments {},
+        )
+        .await
+        .expect("Actor failed to start");
 
         let bot = bot::SkjeraBot::new(
             slack_client.clone(),
             pool,
-            handlers,
             slack_interaction_actor,
+            slack_conversation_server.clone(),
         );
 
         Ok((
             Some(slack_client),
             Some(bot),
             Some((birthdays, birthdays_actor)),
+            Some((slack_conversation_server, slack_conversation_server_handle)),
         ))
     } else {
-        Ok((None, None, None))
+        Ok((None, None, None, None))
     }
 }
 
