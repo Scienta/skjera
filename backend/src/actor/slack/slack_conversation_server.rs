@@ -5,12 +5,18 @@ use std::collections::HashMap;
 use std::marker::PhantomData;
 
 #[async_trait::async_trait]
-pub trait SlackConversationFactory<Msg>: Sized + Sync + Send + 'static
+pub trait Spawn<Msg>: Sized + Sync + Send + 'static
 where
     Msg: ractor::Message,
 {
     async fn spawn(&self) -> Result<ActorRef<Msg>, ActorProcessingErr>;
+}
 
+#[async_trait::async_trait]
+pub trait OnPush<Msg>: Sized + Sync + Send + 'static
+where
+    Msg: ractor::Message,
+{
     async fn on_push(
         &self,
         actor: ActorRef<Msg>,
@@ -21,7 +27,7 @@ where
 pub struct SlackConversationServer<Msg, Factory>
 where
     Msg: ractor::Message + Send + 'static,
-    Factory: SlackConversationFactory<Msg>,
+    Factory: Spawn<Msg> + OnPush<Msg>,
 {
     factory: Factory,
     _phantom_data: PhantomData<Msg>,
@@ -30,7 +36,7 @@ where
 impl<Msg, Factory> SlackConversationServer<Msg, Factory>
 where
     Msg: ractor::Message + Send,
-    Factory: SlackConversationFactory<Msg>,
+    Factory: Spawn<Msg> + OnPush<Msg>,
 {
     pub fn new(factory: Factory) -> SlackConversationServer<Msg, Factory> {
         SlackConversationServer::<Msg, Factory> {
@@ -73,7 +79,7 @@ where
 impl<Msg, Factory> SlackConversationServer<Msg, Factory>
 where
     Msg: ractor::Message + Send + Sync + 'static,
-    Factory: SlackConversationFactory<Msg>,
+    Factory: Spawn<Msg> + OnPush<Msg>,
 {
     async fn get(
         &self,
@@ -101,7 +107,7 @@ pub struct SlackConversationServerArguments {}
 impl<Msg, Factory> Actor for SlackConversationServer<Msg, Factory>
 where
     Msg: ractor::Message + Send + Sync + 'static,
-    Factory: SlackConversationFactory<Msg>,
+    Factory: Spawn<Msg> + OnPush<Msg>,
 {
     type Msg = SlackConversationServerMsg<Msg>;
     type State = SlackConversationServerState<Msg>;

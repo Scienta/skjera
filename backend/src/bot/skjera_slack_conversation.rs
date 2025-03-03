@@ -1,69 +1,54 @@
-use crate::actor::slack_conversation_server::SlackConversationFactory;
+use crate::actor::slack::default_handler::DefaultSlackHandler;
 use crate::bot::birthdays_actor::BirthdaysActorMsg;
 use crate::bot::birthdays_actor::BirthdaysActorMsg::*;
 use crate::bot::hey::HeyHandler;
-use crate::bot::skjera_slack_conversation::SkjeraConversationMsg::*;
-use crate::bot::SlackClient;
 use ractor::{call, Actor, ActorProcessingErr, ActorRef};
 use slack_morphism::prelude::*;
-use std::sync::Arc;
 use tracing::*;
 
-pub struct SkjeraSlackConversationFactory {
-    birthdays_actor: ActorRef<BirthdaysActorMsg>,
-    slack_client: Arc<SlackClient>,
+pub enum SkjeraConversationMsg {
+    SlackPushEventCallback(SlackPushEventCallback),
 }
 
-impl SkjeraSlackConversationFactory {
-    pub fn new(
-        birthdays_actor: ActorRef<BirthdaysActorMsg>,
-        slack_client: Arc<SlackClient>,
-    ) -> Self {
-        SkjeraSlackConversationFactory {
-            birthdays_actor,
-            slack_client,
+pub struct SkjeraConversation {
+    pub(crate) birthdays_actor: ActorRef<BirthdaysActorMsg>,
+    pub(crate) hey: HeyHandler,
+}
+
+pub struct SkjeraConversationState {}
+
+#[ractor::async_trait]
+impl Actor for SkjeraConversation {
+    type Msg = SkjeraConversationMsg;
+    type State = SkjeraConversationState;
+    type Arguments = ();
+
+    async fn pre_start(
+        &self,
+        _myself: ActorRef<Self::Msg>,
+        _: Self::Arguments,
+    ) -> Result<Self::State, ActorProcessingErr> {
+        Ok(SkjeraConversationState {})
+    }
+
+    async fn handle(
+        &self,
+        _myself: ActorRef<Self::Msg>,
+        message: Self::Msg,
+        _state: &mut Self::State,
+    ) -> Result<(), ActorProcessingErr> {
+        use SkjeraConversationMsg::*;
+        match message {
+            SlackPushEventCallback(event) => self.handle_push(event).await,
         }
     }
 }
 
-#[async_trait::async_trait]
-impl SlackConversationFactory<SkjeraConversationMsg> for SkjeraSlackConversationFactory {
-    async fn spawn(&self) -> Result<ActorRef<SkjeraConversationMsg>, ActorProcessingErr> {
-        let (actor, _) = SkjeraConversation::spawn(
-            None,
-            SkjeraConversation {
-                birthdays_actor: self.birthdays_actor.clone(),
-                hey: HeyHandler {
-                    slack_client: self.slack_client.clone(),
-                },
-            },
-            (),
-        )
-        .await?;
+impl DefaultSlackHandler for SkjeraConversation {
+    type Msg = SkjeraConversationMsg;
+    type State = SkjeraConversationState;
 
-        Ok(actor)
-    }
-
-    async fn on_push(
-        &self,
-        actor: ActorRef<SkjeraConversationMsg>,
-        event: SlackPushEventCallback,
-    ) -> Result<(), ActorProcessingErr> {
-        actor.cast(OnPush(event)).map_err(Into::into)
-    }
-}
-
-pub enum SkjeraConversationMsg {
-    OnPush(SlackPushEventCallback),
-}
-
-pub struct SkjeraConversation {
-    birthdays_actor: ActorRef<BirthdaysActorMsg>,
-    hey: HeyHandler,
-}
-
-impl SkjeraConversation {
-    pub(crate) async fn on_message(
+    async fn on_message(
         &self,
         team_id: SlackTeamId,
         event: SlackMessageEvent,
@@ -101,39 +86,6 @@ impl SkjeraConversation {
 
                 Ok(())
             }
-            _ => Ok(()),
-        }
-    }
-}
-
-pub struct SkjeraConversationState {}
-
-#[ractor::async_trait]
-impl Actor for SkjeraConversation {
-    type Msg = SkjeraConversationMsg;
-    type State = SkjeraConversationState;
-    type Arguments = ();
-
-    async fn pre_start(
-        &self,
-        _myself: ActorRef<Self::Msg>,
-        _: Self::Arguments,
-    ) -> Result<Self::State, ActorProcessingErr> {
-        Ok(SkjeraConversationState {})
-    }
-
-    async fn handle(
-        &self,
-        _myself: ActorRef<Self::Msg>,
-        message: Self::Msg,
-        _state: &mut Self::State,
-    ) -> Result<(), ActorProcessingErr> {
-        match message {
-            OnPush(SlackPushEventCallback {
-                team_id,
-                event: SlackEventCallbackBody::Message(event),
-                ..
-            }) => self.on_message(team_id, event).await,
             _ => Ok(()),
         }
     }

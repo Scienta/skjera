@@ -2,8 +2,9 @@ pub mod birthday_actor;
 pub mod birthdays_actor;
 pub mod hey;
 pub mod skjera_slack_conversation;
+pub mod skjera_slack_conversations;
 
-use crate::actor::slack_conversation_server::SlackConversationServerMsg;
+use crate::actor::slack::slack_conversation_server::SlackConversationServerMsg;
 use crate::bot::skjera_slack_conversation::*;
 use crate::slack_interaction_server::SlackInteractionServer;
 use crate::slack_interaction_server::SlackInteractionServerMsg::OnInteractionActions;

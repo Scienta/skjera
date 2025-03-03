@@ -13,19 +13,18 @@ mod slack_client;
 mod slack_interaction_server;
 mod web;
 
-use crate::actor::slack_conversation_server::{
-    SlackConversationServer, SlackConversationServerArguments, SlackConversationServerMsg,
-};
 use crate::birthday_assistant::BirthdayAssistant;
 use crate::bot::birthdays_actor::{BirthdaysActor, BirthdaysActorMsg};
-use crate::bot::skjera_slack_conversation::{
-    SkjeraSlackConversationFactory, SkjeraConversationMsg,
-};
+use crate::bot::skjera_slack_conversation::SkjeraConversationMsg;
+use crate::bot::skjera_slack_conversations::SkjeraConversations;
 use crate::bot::SlackClient;
 use crate::model::*;
 use crate::session::SkjeraSessionData;
 use crate::slack_interaction_server::SlackInteractionServer;
 use crate::web::web::create_router;
+use actor::slack::slack_conversation_server::{
+    SlackConversationServer, SlackConversationServerArguments, SlackConversationServerMsg,
+};
 use anyhow::anyhow;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Redirect, Response};
@@ -245,7 +244,7 @@ async fn configure_slack(
         .expect("Actor failed to start");
 
         let skjera_slack_conversation_factory =
-            SkjeraSlackConversationFactory::new(birthdays.clone(), slack_client.clone());
+            SkjeraConversations::new(birthdays.clone(), slack_client.clone());
         let conversation_server = SlackConversationServer::new(skjera_slack_conversation_factory);
 
         let (slack_conversation_server, slack_conversation_server_handle) = Actor::spawn(

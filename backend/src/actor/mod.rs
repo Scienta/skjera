@@ -1,4 +1,4 @@
-pub mod slack_conversation_server;
+pub mod slack;
 pub mod watchdog;
 
 #[cfg(test)]
