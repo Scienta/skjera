@@ -252,6 +252,13 @@ impl BirthdayActorState {
             _ => None,
         }
     }
+
+    fn some_account(&self) -> Option<SomeAccount> {
+        match self {
+            AwaitingInteraction(AwaitingInteraction { some_account, .. }) => some_account.clone(),
+            _ => None,
+        }
+    }
 }
 
 pub enum BirthdayActorMsg {
@@ -286,8 +293,11 @@ impl Actor for BirthdayActor {
         if let Some((channel, ts)) = state.ts() {
             info!("Stopping, ts={}", ts);
 
-            let message =
-                BirthdayMessage::deleted("unknown".to_string(), None, state.birthday_message());
+            let message = BirthdayMessage::deleted(
+                "unknown".to_string(),
+                state.some_account(),
+                state.birthday_message(),
+            );
 
             self.update_message(&message, &channel, &ts).await;
         } else {
